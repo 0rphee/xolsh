@@ -46,6 +46,8 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    dependencies:
+    - optparse-applicative
 
 tests:
   xolsh-test:

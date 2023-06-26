@@ -26,6 +26,7 @@ source-repository head
 executable xolsh-exe
   main-is: Main.hs
   other-modules:
+      CmdlineOptions
       Paths_xolsh
   hs-source-dirs:
       app
@@ -34,12 +35,14 @@ executable xolsh-exe
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , optparse-applicative
   default-language: GHC2021
 
 test-suite xolsh-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      CmdlineOptions
       Main
       Paths_xolsh
   hs-source-dirs:

@@ -1,4 +1,8 @@
 module Main (main) where
 
+import CmdlineOptions
+
 main :: IO ()
-main = putStrLn "Hello world"
+main = do
+  (Options sourceCodeFilepath) <- execParser options
+  putStrLn "Hello world"
