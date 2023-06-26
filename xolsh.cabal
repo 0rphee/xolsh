@@ -1,0 +1,118 @@
+cabal-version: 3.4
+name: xolsh
+version: 0.1.0.0
+description: Please see the README on GitHub at <https://github.com/0rphee/xolsh#readme>
+author: 0rphee
+maintainer: 0rph3e@proton.me
+copyright: 2023 0rphee
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+extra-source-files:
+  CHANGELOG.md
+  README.md
+
+tested-with: ghc ==9.4.8 || ==9.6.5 || ==9.8.2 || ==9.10.1
+
+common common-deps
+  build-depends:
+    base >=4.7 && <5,
+    vector,
+
+common common-options
+  default-language: GHC2021
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -fhide-source-paths
+    -Wno-unused-do-bind
+    -fshow-hole-constraints
+    -fprint-potential-instances
+    -Wno-unticked-promoted-constructors
+    -flate-specialise
+    -funbox-strict-fields
+    -fexpose-all-unfoldings
+    -threaded
+    -with-rtsopts=-N
+    -Wunused-packages
+
+  default-extensions:
+    OverloadedStrings
+
+library
+  import:
+    , common-deps
+    , common-options
+
+  hs-source-dirs:
+    src
+
+  exposed-modules:
+  build-depends:
+    bytestring,
+    mtl,
+
+executable xolsh-exe
+  import:
+    , common-deps
+    , common-options
+
+  hs-source-dirs:
+    app
+
+  main-is: Main.hs
+  other-modules:
+    CmdlineOptions
+    Paths_xolsh
+
+  default-extensions:
+    RecordWildCards
+
+  build-depends:
+    bytestring,
+    mtl,
+    optparse-applicative,
+    xolsh,
+
+test-suite xolsh-test
+  import:
+    , common-deps
+    , common-options
+
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    test
+
+  main-is: Spec.hs
+  other-modules:
+    Paths_xolsh
+
+  build-depends:
+    bytestring,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    xolsh,
+
+benchmark xolsh-benchmarks
+  import:
+    , common-deps
+    , common-options
+
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    bench
+
+  main-is: Bench.hs
+  other-modules:
+    Paths_xolsh
+
+  ghc-options: -O2
+  build-depends:
+    tasty-bench,
+    xolsh,

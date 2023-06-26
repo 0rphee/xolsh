@@ -1,0 +1,16 @@
+indentation: 2                      # any non-negative integer (default 4)
+column-limit: 80                    # (default none), or any non-negative integer
+function-arrows: leading            # (default trailing), leading, leading-args
+comma-style: leading                # (default leading), trailing
+import-export-style: leading        # leading, trailing, (default diff-friendly)
+indent-wheres: true                 # true, (default false)
+record-brace-space: true            # true, (default false)
+newlines-between-decls: 1           # any integer (default 1)
+haddock-style: multi-line           # single-line, (default multi-line), multi-line-compact
+haddock-style-module:               # (default same as haddock-style)
+let-style: inline                   # inline, newline, (default auto), mixed
+in-style: right-align               # left-align, (default right-align), no-space
+single-constraint-parens: never     # (default always), never, auto
+unicode: never                      # always, detect, (default never)
+respectful: false                   # (default true), false
+fixities: []                        # list of strings (default [])

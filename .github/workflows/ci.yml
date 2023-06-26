@@ -1,0 +1,62 @@
+name: CI
+
+# Trigger the workflow on push or pull request, but only for the main branch
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  generate-matrix:
+    name: "Generate matrix from cabal"
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract the tested GHC versions
+        id: set-matrix
+        uses: kleidukos/get-tested@0.1.7.1
+        with:
+          cabal-file: xolsh.cabal
+          ubuntu-version: latest
+          macos-version: latest
+          windows-version: latest
+          version: 0.1.7.0
+
+  tests:
+    name: ${{ matrix.ghc }} on ${{ matrix.os }}
+    needs: generate-matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout base repo
+        uses: actions/checkout@v4
+
+      - name: Set up Haskell
+        id: setup-haskell
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: "latest"
+
+      - name: Configure
+        run: |
+          cabal configure --enable-tests
+          # Generate dist-newstyle/cache/plan.json for the cache key.
+          cabal build --dry-run
+
+      - name: Freeze
+        run: cabal freeze
+
+      - name: Cache ~/.cabal/store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-haskell.outputs.cabal-store }}
+          key: ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('dist-newstyle/cache/plan.json') }}
+
+      - name: Build
+        run: cabal build all
+
+      - name: Test
+        run: cabal test all --test-show-details=direct
