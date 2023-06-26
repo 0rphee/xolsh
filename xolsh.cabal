@@ -1,0 +1,53 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.35.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           xolsh
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/0rphee/xolsh#readme>
+homepage:       https://github.com/0rphee/xolsh#readme
+bug-reports:    https://github.com/0rphee/xolsh/issues
+author:         0rphee
+maintainer:     0rph3e@proton.me
+copyright:      2023 0rphee
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/0rphee/xolsh
+
+executable xolsh-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_xolsh
+  hs-source-dirs:
+      app
+  default-extensions:
+      RecordWildCards
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+  default-language: GHC2021
+
+test-suite xolsh-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Main
+      Paths_xolsh
+  hs-source-dirs:
+      test
+      app
+  default-extensions:
+      RecordWildCards
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+  default-language: GHC2021
