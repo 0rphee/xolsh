@@ -5,10 +5,11 @@ module CmdlineOptions
   )
 where
 
+import Data.ByteString.Char8 as B
 import Options.Applicative
 
 newtype Options = Options
-  { sourceCodefile :: Maybe FilePath
+  { sourceCodefile :: Maybe ByteString
   }
 
 options :: ParserInfo Options
@@ -25,7 +26,7 @@ options =
 opts :: Parser Options
 opts = Options <$> inputFilePath
 
-inputFilePath :: Parser (Maybe FilePath)
+inputFilePath :: Parser (Maybe ByteString)
 inputFilePath =
   optional $
     strArgument
