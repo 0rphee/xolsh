@@ -35,6 +35,7 @@ ghc-options:
 
 default-extensions:
 - RecordWildCards
+- OverloadedStrings
 
 language: GHC2021
 
@@ -48,6 +49,9 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - optparse-applicative
+    - bytestring
+    - transformers
+
 
 tests:
   xolsh-test:
