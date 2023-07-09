@@ -8,7 +8,7 @@ where
 import Options.Applicative
 
 newtype Options = Options
-  { oInput :: FilePath
+  { sourceCodefile :: Maybe FilePath
   }
 
 options :: ParserInfo Options
@@ -25,11 +25,12 @@ options =
 opts :: Parser Options
 opts = Options <$> inputFilePath
 
-inputFilePath :: Parser FilePath
+inputFilePath :: Parser (Maybe FilePath)
 inputFilePath =
-  strArgument
-    ( metavar "FILENAME"
-        <> help "Input file"
-        <> action "directory"
-        <> action "file"
-    )
+  optional $
+    strArgument
+      ( metavar "FILENAME"
+          <> help "Input file"
+          <> action "directory"
+          <> action "file"
+      )
