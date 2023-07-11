@@ -50,6 +50,7 @@ executables:
     - optparse-applicative
     - bytestring
     - transformers
+    - vector
 
 
 tests:
