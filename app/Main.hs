@@ -1,6 +1,7 @@
 module Main (main) where
 
 import CmdlineOptions
+import Control.Monad (forM_, forever)
 import Data.ByteString.Char8 as B
 
 main :: IO ()
@@ -14,10 +15,19 @@ runFile path = do
   fileContents <- B.readFile $ B.unpack path
   run fileContents
 
-run :: ByteString -> IO ()
-run b = do
-  B.putStrLn b
-  undefined
-
 runPrompt :: IO ()
-runPrompt = B.putStrLn "Run prompt"
+runPrompt = forever $ do
+  B.putStr "> "
+  line <- B.getLine
+  if B.null line
+    then B.putStr "\n"
+    else run line
+
+run :: ByteString -> IO ()
+run source = do
+  let scan = undefined :: ByteString -> [ByteString]
+  let tokens = scan source
+  forM_ tokens B.putStrLn
+
+scan :: ByteString -> [ByteString]
+scan = undefined
