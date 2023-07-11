@@ -25,7 +25,6 @@ runPrompt = forever $ do
 
 run :: ByteString -> IO ()
 run source = do
-  let scan = undefined :: ByteString -> [ByteString]
   let tokens = scan source
   forM_ tokens B.putStrLn
 
