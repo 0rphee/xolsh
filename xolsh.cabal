@@ -6,9 +6,7 @@ cabal-version: 1.12
 
 name:           xolsh
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/0rphee/xolsh#readme>
-homepage:       https://github.com/0rphee/xolsh#readme
-bug-reports:    https://github.com/0rphee/xolsh/issues
+description:    Please see the README on Codeberg at <https://codeberg.org/0rphee/xolsh#xolsh>
 author:         0rphee
 maintainer:     0rph3e@proton.me
 copyright:      2023 0rphee
@@ -18,10 +16,6 @@ build-type:     Simple
 extra-source-files:
     README.md
     CHANGELOG.md
-
-source-repository head
-  type: git
-  location: https://github.com/0rphee/xolsh
 
 executable xolsh-exe
   main-is: Main.hs
@@ -39,6 +33,7 @@ executable xolsh-exe
     , bytestring
     , optparse-applicative
     , transformers
+    , vector
   default-language: GHC2021
 
 test-suite xolsh-test
