@@ -1,6 +1,5 @@
 name:                xolsh
 version:             0.1.0.0
-github:              "0rphee/xolsh"
 license:             BSD3
 author:              "0rphee"
 maintainer:          "0rph3e@proton.me"
@@ -17,7 +16,7 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/0rphee/xolsh#readme>
+description:         Please see the README on Codeberg at <https://codeberg.org/0rphee/xolsh#xolsh>
 
 dependencies:
 - base >= 4.7 && < 5
