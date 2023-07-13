@@ -1,25 +1,42 @@
 module Main (main) where
 
 import CmdlineOptions
-import Control.Monad (forM_, forever)
+import Control.Monad.State.Strict
 import Data.ByteString.Char8 as B
 import Data.Function ((&))
+import System.Exit (ExitCode (..), exitWith)
 import System.IO (stderr)
 
-newtype Error = Err Bool
+newtype AppState = StateErr Bool
+
+-- Define a monad stack using MTL
+newtype AppM a
+  = AppM
+      ( StateT AppState IO a
+      )
+  deriving (Functor, Applicative, Monad, MonadState AppState, MonadIO)
+
+runAppM :: AppM a -> IO a
+runAppM (AppM x) = evalStateT x initialState
+  where
+    initialState = StateErr False
 
 main :: IO ()
 main = do
   (Options sourceCodeFilepath) <- execParser options
-  maybe runPrompt runFile sourceCodeFilepath
+  case sourceCodeFilepath of
+    Nothing -> runAppM runPrompt
+    Just sourceCodeFile -> runAppM $ runFile sourceCodeFile
 
-runFile :: ByteString -> StateT Error IO ()
+runFile :: (MonadIO m, MonadState AppState m) => ByteString -> m ()
 runFile path = do
   liftIO $ B.putStrLn ("Run file: " <> path)
   fileContents <- liftIO $ B.readFile (B.unpack path)
-  liftIO $ run fileContents
+  run fileContents
+  (StateErr err) <- get
+  when err (liftIO $ exitWith (ExitFailure 65))
 
-runPrompt :: StateT Error IO ()
+runPrompt :: MonadIO m => m ()
 runPrompt = forever $ do
   liftIO $ B.putStr "> "
   line <- liftIO B.getLine
@@ -28,17 +45,17 @@ runPrompt = forever $ do
       then B.putStr "\n"
       else run line
 
-run :: ByteString -> IO ()
+run :: MonadIO m => ByteString -> m ()
 run source = do
   let tokens = scan source
-  forM_ tokens B.putStrLn
+  liftIO $ forM_ tokens B.putStrLn
 
 scan :: ByteString -> [ByteString]
-scan = undefined
+scan = error "scanning not implemented"
 
-reportError :: Int -> ByteString -> StateT Error IO ()
+reportError :: (MonadIO m, MonadState AppState m) => Int -> ByteString -> m ()
 reportError lineNum message = do
   liftIO $
     B.hPutStrLn stderr $
       "[line " <> (lineNum & show & B.pack) <> "] Error: " <> message
-  put (Err True)
+  put (StateErr True)
