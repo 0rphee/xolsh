@@ -51,6 +51,7 @@ executables:
     - bytestring
     - transformers
     - vector
+    - mtl
 
 
 tests:
