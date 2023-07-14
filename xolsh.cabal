@@ -21,6 +21,7 @@ executable xolsh-exe
   main-is: Main.hs
   other-modules:
       CmdlineOptions
+      Scanner
       Token
       Paths_xolsh
   hs-source-dirs:
@@ -46,6 +47,7 @@ test-suite xolsh-test
   other-modules:
       CmdlineOptions
       Main
+      Scanner
       Token
       Paths_xolsh
   hs-source-dirs:
