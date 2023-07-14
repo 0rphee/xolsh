@@ -31,8 +31,10 @@ executable xolsh-exe
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , flatparse
     , mtl
     , optparse-applicative
+    , template-haskell
     , transformers
     , vector
   default-language: GHC2021
