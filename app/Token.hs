@@ -50,8 +50,8 @@ data TokenType
 
 data Token = Token
   { tokType :: !TokenType
-  , tokLexeme :: !ByteString
-  , -- , tokLiteral :: a
-    tokLine :: !Int
+  , tokLexeme :: !(Maybe ByteString)
+  -- , -- , tokLiteral :: a
+  -- tokLine :: !Int
   }
   deriving (Show)
