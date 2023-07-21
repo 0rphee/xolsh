@@ -62,8 +62,8 @@ run source = do
               B.putStrLn ("Rest of BS: " <> bs)
           Left (ERR ch (line, col))-> 
             let str = "UnexpectedCharacter '" <> B.singleton ch 
-                    <> "' at l:" <> B.pack (show line) 
-                    <> ", c:" <> B.pack (show col)
+                    <> "' at l:" <> B.pack (show $ line+1)
+                    <> ", c:" <> B.pack (show $ col +1)
             in B.putStrLn str
 
 scan :: ByteString -> Either CodeError (Vector Token, ByteString)
