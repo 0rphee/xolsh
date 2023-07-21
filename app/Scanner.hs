@@ -1,11 +1,15 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE LambdaCase #-}
 
-module Scanner where
+module Scanner (scanFile, ScannerError(..), CodeError(..), ScannerState(..), Scanner (..)) where
 
-import Data.ByteString.Char8 as B
-import Data.Vector as V
+import Control.Monad.Writer.Strict
+import Data.ByteString.Char8 qualified as B
+import Data.Vector qualified as V
 import FlatParse.Basic
 import Token
+import Data.ByteString.Char8 (ByteString)
+import Data.Vector (Vector)
 
 data ScannerError = UnexpectedCharacter Char Pos deriving (Show)
 
@@ -15,6 +19,9 @@ data ScannerState = ScannerState
   { source :: !ByteString
   , tokens :: !(Vector Token)
   }
+
+newtype Scanner err parsingRes = Scanner {getScanner :: WriterT (Vector err) (Parser err) parsingRes}
+  deriving (Functor, Applicative, Monad, MonadWriter (Vector err))
 
 scanFile :: ByteString -> Either CodeError (Vector Token, ByteString)
 scanFile bs = case runParser scanTokens bs of
@@ -27,8 +34,11 @@ scanFile bs = case runParser scanTokens bs of
 scanTokens :: ParserT st ScannerError (V.Vector Token)
 scanTokens = V.fromList <$> many scanToken
 
-scanToken :: ParserT st ScannerError Token
-scanToken =
+toScanner :: Parser ScannerError r -> Scanner ScannerError r
+toScanner parser = Scanner $ lift parser
+
+simpleScanToken :: ParserT st ScannerError Token
+simpleScanToken =
   let returnTok = pure . (`Token` Nothing)
    in $( switch
           [|
@@ -52,18 +62,43 @@ scanToken =
               ">" -> returnTok GREATER
               ">=" -> returnTok GREATER_EQUAL
               "/" -> returnTok SLASH
-              "//" -> skipRestOfComment >> scanToken
-              " " -> scanToken
-              "\r" -> scanToken
-              "\t" -> scanToken
-              "\n" -> scanToken
-              _ -> do
-                pos <- getPos
-                ch <- anyChar
-                err $ UnexpectedCharacter ch pos
             |]
        )
 
-skipRestOfComment :: ParserT st e ()
-skipRestOfComment = do
-  skipMany $ skipSatisfy (/= '\n')
+
+-- scanToken' = do 
+--   toScanner $ withOption (skipWhiteSpace >> simpleScanToken) 
+--                 \ tok ->
+
+--                           <|> do
+--                             pos <- getPos
+--                             ch <- anyChar
+
+--                             err $ UnexpectedCharacter ch pos
+
+
+scanToken :: ParserT st ScannerError Token
+scanToken =  skipWhiteSpace >> simpleScanToken
+                          <|> do
+                            pos <- getPos
+                            ch <- anyChar
+                            err $ UnexpectedCharacter ch pos
+
+skipLineComment :: ParserT st e ()
+skipLineComment = branch eof (pure ()) $
+  withOption anyWord8
+    (\case 10 -> skipWhiteSpace   -- '\n'
+           _  -> skipLineComment)
+    (pure ())
+
+advance :: ParserT st e ()
+advance = skip 1
+
+skipWhiteSpace :: ParserT st e ()
+skipWhiteSpace = $(switch [| case _ of
+              " " -> skipWhiteSpace
+              "\r" -> skipWhiteSpace
+              "\t" -> skipWhiteSpace
+              "\n" -> skipWhiteSpace
+              _ -> branch $(string "//") skipLineComment (pure ())
+    |])
