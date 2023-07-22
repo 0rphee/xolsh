@@ -2,43 +2,79 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 
-module Scanner (scanFile, ScannerError(..), CodeError(..), ScannerState(..), Scanner (..)) where
+module Scanner where
 
 import Control.Monad.Writer.Strict
 import Data.ByteString.Char8 qualified as B
 import Data.Vector qualified as V
-import FlatParse.Basic
+import FlatParse.Stateful
 import Token
 import Data.ByteString.Char8 (ByteString)
 import Data.Vector (Vector)
+import FlatParse.Common.Parser (IOMode)
+import Control.Concurrent
 
 data ScannerError = UnexpectedCharacter Char Pos deriving (Show)
 
 data CodeError = ERR Char (Int, Int) deriving (Show)
+
+newtype ScanErr = ScanErr (Vector ScannerError)
+  deriving Show
 
 data ScannerState = ScannerState
   { source :: !ByteString
   , tokens :: !(Vector Token)
   }
 
-newtype Scanner err parsingRes = Scanner {getScanner :: WriterT (Vector err) (Parser err) parsingRes}
-  deriving (Functor, Applicative, Monad, MonadWriter (Vector err))
+-- newtype Scanner st err parsingRes = Scanner {getScanner :: ParserT st (MVar ScanErr) err parsingRes}
+--   deriving (Functor, Applicative, Monad)
 
-scanFile :: ByteString -> Either CodeError (Vector Token, ByteString)
-scanFile bs = case runParser scanTokens bs of
-  OK vec restOfBs -> Right (vec, restOfBs)
-  Err (UnexpectedCharacter ch pos) ->
-    let [linecol] = posLineCols bs [pos]
-     in Left $ ERR ch linecol
-  _ -> error "failure should never propagate here"
+printErrs :: ByteString -> Vector ScannerError -> IO ()
+printErrs bs vec =
+  if V.null vec
+  then print "No Errors!"
+  else mapM_ ppPrintErrs finalLi
+    where (charVec, posVec) = let f' (UnexpectedCharacter ch pos) = (ch, pos)
+                in  V.unzip $ fmap f' vec
+          linecols :: [(Int, Int)]
+          linecols = posLineCols bs $ V.toList posVec
 
-scanTokens :: ParserT st ScannerError (V.Vector Token)
+          finalLi :: [(Char, Int, Int)]
+          finalLi = let charList = V.toList charVec
+                        f char (line, col) = (char,line,col)
+                    in zipWith f charList linecols
+
+          ppPrintErrs = p
+            
+p (ch, line, col)= 
+  let str = "UnexpectedCharacter '" <> B.singleton ch 
+          <> "' at l:" <> B.pack (show $ line+1)
+          <> ", c:" <> B.pack (show $ col +1)
+  in B.putStrLn str
+
+
+scanFile :: ByteString -> IO (Either CodeError (Vector Token, ByteString))
+scanFile bs = do
+  mvar <- newMVar $ ScanErr V.empty
+
+  res <- runParserIO scanTokens mvar 0 bs
+
+  (ScanErr errVec) <- readMVar mvar
+
+  print errVec
+  printErrs bs errVec
+  
+  pure $ case res of
+    OK vec _ restOfBs -> Right (vec, restOfBs)
+    Err (UnexpectedCharacter ch pos) ->
+      let [linecol] = posLineCols bs [pos]
+       in Left $ ERR ch linecol
+    _ -> error "failure should never propagate here"
+
+scanTokens :: ParserT IOMode (MVar ScanErr) ScannerError (Vector Token)
 scanTokens = V.fromList <$> many scanToken
 
-toScanner :: Parser ScannerError r -> Scanner ScannerError r
-toScanner parser = Scanner $ lift parser
-
-simpleScanToken :: ParserT st ScannerError Token
+simpleScanToken :: ParserT st r e Token
 simpleScanToken =
   let returnTok = pure . (`Token` Nothing)
    in $( switch
@@ -66,43 +102,41 @@ simpleScanToken =
             |]
        )
 
-withError :: ParserT st e a -> (e -> ParserT st e a) -> ParserT st e a
+withError :: ParserT st r e a -> (e -> ParserT st r e a) -> ParserT st r e a
 withError (ParserT f) hdl = 
-  ParserT $ \foreignPtrContents eob s st -> case f foreignPtrContents eob s st of
+  ParserT $ \foreignPtrContents r eob s int st -> case f foreignPtrContents r eob s int st of
     Err# st' er -> case hdl er of
-                    ParserT g -> g foreignPtrContents eob s st'
+                    ParserT g -> g foreignPtrContents r eob s int st'
     x -> x
 
-  
--- scanToken' = do 
---   toScanner $ withOption (skipWhiteSpace >> simpleScanToken) 
---                 \ tok ->
+appendScanningErrors :: ScannerError -> ScanErr -> IO ScanErr
+appendScanningErrors codeError (ScanErr v)= pure . ScanErr $ V.snoc v codeError
 
---                           <|> do
---                             pos <- getPos
---                             ch <- anyChar
+appendMVarScanErrors :: MVar ScanErr -> ScannerError -> IO ()
+appendMVarScanErrors mvar codeError 
+  = modifyMVar_ mvar (appendScanningErrors codeError)
 
---                             err $ UnexpectedCharacter ch pos
+scanToken :: ParserT IOMode (MVar ScanErr) ScannerError Token
+scanToken =  do 
+  skipWhiteSpace
+  simpleScanToken <|> do
+                    pos <- getPos
+                    ch <- anyChar
+                    mvar <- ask
+                    liftIO $ appendMVarScanErrors mvar $ UnexpectedCharacter ch pos
+                    scanToken
 
-
-scanToken :: ParserT st ScannerError Token
-scanToken =  skipWhiteSpace >> simpleScanToken
-                          <|> do
-                            pos <- getPos
-                            ch <- anyChar
-                            err $ UnexpectedCharacter ch pos
-
-skipLineComment :: ParserT st e ()
+skipLineComment :: ParserT st r e ()
 skipLineComment = branch eof (pure ()) $
   withOption anyWord8
     (\case 10 -> skipWhiteSpace   -- '\n'
            _  -> skipLineComment)
     (pure ())
 
-advance :: ParserT st e ()
+advance :: ParserT st r e ()
 advance = skip 1
 
-skipWhiteSpace :: ParserT st e ()
+skipWhiteSpace :: ParserT st r e ()
 skipWhiteSpace = $(switch [| case _ of
               " " -> skipWhiteSpace
               "\r" -> skipWhiteSpace
