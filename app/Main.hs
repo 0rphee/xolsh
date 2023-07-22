@@ -52,7 +52,7 @@ runPrompt = forever $ do
 
 run :: MonadIO m => ByteString -> m ()
 run source = do
-  let tokens = scan source
+  tokens <- scan source
   liftIO $ printRes tokens
   where
         printRes toks = case toks of
@@ -66,8 +66,8 @@ run source = do
                     <> ", c:" <> B.pack (show $ col +1)
             in B.putStrLn str
 
-scan :: ByteString -> Either CodeError (Vector Token, ByteString)
-scan = scanFile
+scan :: MonadIO m => ByteString -> m (Either CodeError (Vector Token, ByteString))
+scan b = liftIO $ scanFile b
 
 reportError :: (MonadIO m, MonadState AppState m) => Int -> ByteString -> m ()
 reportError lineNum message = do
