@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 
 module Scanner (scanFile, ScannerError(..), CodeError(..), ScannerState(..), Scanner (..)) where
 
@@ -65,7 +66,14 @@ simpleScanToken =
             |]
        )
 
+withError :: ParserT st e a -> (e -> ParserT st e a) -> ParserT st e a
+withError (ParserT f) hdl = 
+  ParserT $ \foreignPtrContents eob s st -> case f foreignPtrContents eob s st of
+    Err# st' er -> case hdl er of
+                    ParserT g -> g foreignPtrContents eob s st'
+    x -> x
 
+  
 -- scanToken' = do 
 --   toScanner $ withOption (skipWhiteSpace >> simpleScanToken) 
 --                 \ tok ->
