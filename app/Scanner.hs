@@ -57,7 +57,7 @@ printErrs completeBS vec =
             <> B.pack (show $ col + 1)
 
 unsafeRunParserST :: ParserST s (STRef s c) e a -> STRef s c -> Int -> ByteString -> ST s (Result e a)
-unsafeRunParserST pst !r i buf = unsafeIOToST (runParserIO (unsafeCoerce pst) (unsafeCoerce r) i buf)
+unsafeRunParserST pst !r i buf = unsafeIOToST (runParserIO (unsafeCoerce pst) r i buf)
 
 scanFile :: ByteString -> ST s (Either CodeError (Vector ScannerError, Vector Token, ByteString))
 scanFile bs = do
