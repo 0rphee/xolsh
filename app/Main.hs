@@ -1,16 +1,16 @@
 module Main (main) where
 
 import CmdlineOptions
+import Control.Monad.ST
 import Control.Monad.State.Strict
+import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Function ((&))
-import Scanner (CodeError(..), ScannerError(..),printErrs,scanFile)
+import Data.Vector (Vector)
+import Scanner (CodeError (..), ScannerError (..), printErrs, scanFile)
 import System.Exit (ExitCode (..), exitWith)
 import System.IO (stderr)
 import Token
-import Data.ByteString.Char8 (ByteString)
-import Data.Vector (Vector)
-import Control.Monad.ST
 
 newtype AppState = StateErr Bool
 
@@ -41,7 +41,7 @@ runFile path = do
   (StateErr err) <- get
   when err (liftIO $ exitWith (ExitFailure 65))
 
-runPrompt :: MonadIO m => m ()
+runPrompt :: (MonadIO m) => m ()
 runPrompt = forever $ do
   liftIO $ B.putStr "> "
   line <- liftIO B.getLine
@@ -50,23 +50,28 @@ runPrompt = forever $ do
       then B.putStr "\n"
       else run line
 
-run :: MonadIO m => ByteString -> m ()
+run :: (MonadIO m) => ByteString -> m ()
 run sourceBS = do
   let tokens = scan sourceBS
   liftIO $ printRes tokens
   where
-        printRes :: Either CodeError (Vector ScannerError, Vector Token, ByteString) -> IO ()
-        printRes toks = case toks of
-          Right (errVec, v, restOfBS) -> let p = B.putStrLn . B.pack . show in 
-            do 
+    printRes :: Either CodeError (Vector ScannerError, Vector Token, ByteString) -> IO ()
+    printRes toks = case toks of
+      Right (errVec, v, restOfBS) ->
+        let p = B.putStrLn . B.pack . show
+         in do
               printErrs sourceBS errVec
               forM_ v p
               B.putStrLn ("Rest of BS: " <> restOfBS)
-          Left (ERR ch (line, col))-> 
-            let str = "UnexpectedCharacter '" <> B.singleton ch 
-                    <> "' at l:" <> B.pack (show $ line+1)
-                    <> ", c:" <> B.pack (show $ col +1)
-            in B.putStrLn str
+      Left (ERR ch (line, col)) ->
+        let str =
+              "UnexpectedCharacter '"
+                <> B.singleton ch
+                <> "' at l:"
+                <> B.pack (show $ line + 1)
+                <> ", c:"
+                <> B.pack (show $ col + 1)
+         in B.putStrLn str
 
 scan :: ByteString -> Either CodeError (Vector ScannerError, Vector Token, ByteString)
 scan b = runST $ scanFile b
