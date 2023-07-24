@@ -4,13 +4,13 @@ import CmdlineOptions
 import Control.Monad.State.Strict
 import Data.ByteString.Char8 qualified as B
 import Data.Function ((&))
-import Scanner
+import Scanner (CodeError(..), ScannerError(..),printErrs,scanFile)
 import System.Exit (ExitCode (..), exitWith)
 import System.IO (stderr)
-import Data.Vector qualified as V
 import Token
 import Data.ByteString.Char8 (ByteString)
 import Data.Vector (Vector)
+import Control.Monad.ST
 
 newtype AppState = StateErr Bool
 
@@ -51,23 +51,25 @@ runPrompt = forever $ do
       else run line
 
 run :: MonadIO m => ByteString -> m ()
-run source = do
-  tokens <- scan source
+run sourceBS = do
+  let tokens = scan sourceBS
   liftIO $ printRes tokens
   where
+        printRes :: Either CodeError (Vector ScannerError, Vector Token, ByteString) -> IO ()
         printRes toks = case toks of
-          Right (v, bs) -> let p = B.putStrLn . B.pack . show in 
+          Right (errVec, v, restOfBS) -> let p = B.putStrLn . B.pack . show in 
             do 
+              printErrs sourceBS errVec
               forM_ v p
-              B.putStrLn ("Rest of BS: " <> bs)
+              B.putStrLn ("Rest of BS: " <> restOfBS)
           Left (ERR ch (line, col))-> 
             let str = "UnexpectedCharacter '" <> B.singleton ch 
                     <> "' at l:" <> B.pack (show $ line+1)
                     <> ", c:" <> B.pack (show $ col +1)
             in B.putStrLn str
 
-scan :: MonadIO m => ByteString -> m (Either CodeError (Vector Token, ByteString))
-scan b = liftIO $ scanFile b
+scan :: ByteString -> Either CodeError (Vector ScannerError, Vector Token, ByteString)
+scan b = runST $ scanFile b
 
 reportError :: (MonadIO m, MonadState AppState m) => Int -> ByteString -> m ()
 reportError lineNum message = do
