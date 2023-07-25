@@ -10,6 +10,7 @@ import Control.Monad.ST.Unsafe (unsafeIOToST)
 import Control.Monad.Writer.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
+import Data.Function ((&))
 import Data.STRef
 import Data.Vector (Vector)
 import Data.Vector qualified as V
@@ -31,7 +32,6 @@ printErrs completeBS vec =
   if V.null vec
     then liftIO $ B.putStrLn "No Errors!"
     else do
-      liftIO $ print vec
       mapM_ ppPrintErrs finalLi
   where
     (charVec, posVec) =
@@ -49,12 +49,13 @@ printErrs completeBS vec =
     ppPrintErrs (ch, line, col) = liftIO $ B.putStrLn str
       where
         str =
-          "UnexpectedCharacter '"
+          "[line: "
+            <> (line & show & B.pack)
+            <> ", col: "
+            <> (col & show & B.pack)
+            <> "] Error: UnexpectedCharacter '"
             <> B.singleton ch
-            <> "' at l:"
-            <> B.pack (show $ line + 1)
-            <> ", c:"
-            <> B.pack (show $ col + 1)
+            <> "'"
 
 unsafeRunParserST :: ParserST s (STRef s c) e a -> STRef s c -> Int -> ByteString -> ST s (Result e a)
 unsafeRunParserST pst !r i buf = unsafeIOToST (runParserIO (unsafeCoerce pst) r i buf)
@@ -144,8 +145,7 @@ mymany' i@(ParserT f) = ParserT go
                   (pure V.empty)
                   ( do
                       skipWhiteSpace
-                      rest <- traceRest
-                      traceShow rest $ branch advance (mymany' i) (pure V.empty)
+                      branch advance (mymany' i) (pure V.empty)
                   )
            in b fp stref eob s n st
         Err# st e -> Err# st e
