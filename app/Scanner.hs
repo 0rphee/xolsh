@@ -6,7 +6,6 @@
 module Scanner (CodeError (..), ScannerError (..), printErrs, scanFile, ppPrintErr) where
 
 import Control.Monad.ST
-import Control.Monad.ST.Unsafe (unsafeIOToST)
 import Control.Monad.Writer.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
@@ -17,7 +16,6 @@ import Data.Vector qualified as V
 import FlatParse.Common.Parser (STMode)
 import FlatParse.Stateful
 import Token
-import Unsafe.Coerce (unsafeCoerce)
 
 data ScannerError
   = UnexpectedCharacter Char Pos
