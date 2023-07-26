@@ -7,7 +7,7 @@ import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Function ((&))
 import Data.Vector (Vector)
-import Scanner (CodeError (..), ScannerError (..), printErrs, scanFile)
+import Scanner (CodeError (..), ScannerError (..), ppPrintErr, printErrs, scanFile)
 import System.Exit (ExitCode (..), exitWith)
 import System.IO (stderr)
 import Token
@@ -63,16 +63,7 @@ run sourceBS = do
               printErrs sourceBS errVec
               forM_ v p
               B.putStrLn ("Rest of BS: " <> restOfBS)
-      Left (ERR ch (line, col)) ->
-        let str =
-              "[line: "
-                <> (line & show & B.pack)
-                <> ", col: "
-                <> (col & show & B.pack)
-                <> "] Error: UnexpectedCharacter '"
-                <> B.singleton ch
-                <> "'"
-         in B.putStrLn str
+      Left e -> ppPrintErr e
 
 scan :: ByteString -> Either CodeError (Vector ScannerError, Vector Token, ByteString)
 scan b = runST $ scanFile b

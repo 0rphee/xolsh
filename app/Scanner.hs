@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Scanner (CodeError (..), ScannerError (..), printErrs, scanFile) where
+module Scanner (CodeError (..), ScannerError (..), printErrs, scanFile, ppPrintErr) where
 
 import Control.Monad.ST
 import Control.Monad.ST.Unsafe (unsafeIOToST)
@@ -19,9 +19,15 @@ import FlatParse.Stateful
 import Token
 import Unsafe.Coerce (unsafeCoerce)
 
-data ScannerError = UnexpectedCharacter Char Pos deriving (Show)
+data ScannerError
+  = UnexpectedCharacter Char Pos
+  | UnterminatedString Pos
+  deriving (Show)
 
-data CodeError = ERR Char (Int, Int) deriving (Show)
+data CodeError
+  = CUnexpectedCharacter Char (Int, Int)
+  | CUnterminatedString (Int, Int)
+  deriving (Show)
 
 newtype ScanErr = ScanErr (Vector ScannerError)
   deriving (Show)
@@ -31,30 +37,35 @@ printErrs completeBS vec =
   if V.null vec
     then liftIO $ B.putStrLn "No Errors!"
     else do
-      mapM_ ppPrintErrs finalLi
+      mapM_ ppPrintErr finalLi
   where
     (charVec, posVec) =
-      let f' (UnexpectedCharacter ch pos) = (ch, pos)
+      let f' (UnexpectedCharacter ch pos) = (CUnexpectedCharacter ch, pos)
+          f' (UnterminatedString pos) = (CUnterminatedString, pos)
        in V.unzip $ fmap f' vec
+
     linecols :: [(Int, Int)]
     linecols = posLineCols completeBS $ V.toList posVec
 
-    finalLi :: [(Char, Int, Int)]
+    finalLi :: [CodeError]
     finalLi =
       let charList = V.toList charVec
-          f char' (line, col) = (char', line, col)
+          f cErrorConstructor (l, c) = cErrorConstructor (l + 1, c + 1) -- start col/line numbers from 1
        in zipWith f charList linecols
 
-    ppPrintErrs (ch, line, col) = liftIO $ B.putStrLn str
-      where
-        str =
-          "[line: "
-            <> (line & show & B.pack)
-            <> ", col: "
-            <> (col & show & B.pack)
-            <> "] Error: UnexpectedCharacter '"
-            <> B.singleton ch
-            <> "'"
+ppPrintErr :: (MonadIO m) => CodeError -> m ()
+ppPrintErr e = liftIO $ B.putStrLn (lineColStr <> restStr)
+  where
+    (line, col, restStr) =
+      case e of
+        CUnexpectedCharacter ch (l, c) -> (l, c, "UnexpectedCharacter '" <> B.singleton ch <> "'")
+        CUnterminatedString (l, c) -> (l, c, "UnterminatedString")
+    lineColStr =
+      "[line: "
+        <> (line & show & B.pack)
+        <> ", col: "
+        <> (col & show & B.pack)
+        <> "] Error: "
 
 scanFile :: ByteString -> ST s (Either CodeError (Vector ScannerError, Vector Token, ByteString))
 scanFile bs = do
@@ -65,12 +76,16 @@ scanFile bs = do
   (ScanErr errVec) <- readSTRef stRef
   pure $ case res of
     OK vec _ restOfBs -> Right (errVec, vec, restOfBs)
-    Err (UnexpectedCharacter ch pos) ->
-      let [linecol] = posLineCols bs [pos] -- only one position, the pattern will always be matched
-       in Left $ ERR ch linecol
+    Err e -> case e of
+      UnexpectedCharacter ch pos ->
+        let [linecol] = posLineCols bs [pos] -- only one position, the pattern will always be matched
+         in Left $ CUnexpectedCharacter ch linecol
+      UnterminatedString pos ->
+        let [linecol] = posLineCols bs [pos]
+         in Left $ CUnterminatedString linecol
     _ -> error "failure should never propagate here"
 
-simpleScanToken :: ParserT st r e Token
+simpleScanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 simpleScanToken =
   let returnTok = pure . (`Token` Nothing)
    in $( switch
@@ -95,15 +110,17 @@ simpleScanToken =
               ">" -> returnTok GREATER
               ">=" -> returnTok GREATER_EQUAL
               "/" -> returnTok SLASH
+              "\"" -> parseString
             |]
        )
+{-# INLINE simpleScanToken #-}
 
 appendSTRefSCanErrors :: STRef s ScanErr -> ScannerError -> ST s ()
 appendSTRefSCanErrors stref er = modifySTRef' stref (apndScanningErrors er)
   where
     apndScanningErrors codeError (ScanErr v) = ScanErr $ V.snoc v codeError
 
-scanToken :: ParserT (STMode s) (STRef s ScanErr) e Token
+scanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 scanToken = do
   skipWhiteSpace
   simpleScanToken <|> do
@@ -113,10 +130,11 @@ scanToken = do
     liftST $ appendSTRefSCanErrors stref $ UnexpectedCharacter ch pos
     failed
 
-scanTokens :: ParserT (STMode s) (STRef s ScanErr) e (Vector Token)
+scanTokens :: ParserT (STMode s) (STRef s ScanErr) ScannerError (Vector Token)
 scanTokens = mymany' scanToken
 
-mymany' :: ParserT st r e Token -> ParserT st r e (Vector Token)
+-- mymany' :: ParserT st r e Token -> ParserT st r e (Vector Token)
+mymany' :: ParserT st r ScannerError a -> ParserT st r ScannerError (Vector a)
 mymany' i@(ParserT f) = ParserT go
   where
     go fp !stref eob s n st =
@@ -135,7 +153,11 @@ mymany' i@(ParserT f) = ParserT go
                       branch advance (mymany' i) (pure V.empty)
                   )
            in b fp stref eob s n st
-        Err# st e -> Err# st e
+        Err# st e -> case e of
+          UnterminatedString _ ->
+            let ParserT h = setPos endPos >> mymany' i
+             in h fp stref eob s n st
+          _ -> Err# st e
 
 skipLineComment :: ParserT st r e ()
 skipLineComment =
@@ -163,3 +185,18 @@ skipWhiteSpace =
           _ -> branch $(string "//") skipLineComment (pure ())
         |]
    )
+
+parseString :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
+parseString = Token STRING . Just <$> parse
+  where
+    parse = do
+      pos <- lookahead (skipBack 1 >> getPos)
+      bs <- byteStringOf $ skipMany (skipSatisfyAscii (/= '"'))
+      branch
+        advance
+        (pure bs)
+        ( do
+            stref :: STRef s ScanErr <- ask
+            liftST $ appendSTRefSCanErrors stref $ UnterminatedString pos
+            err $ UnterminatedString pos
+        )
