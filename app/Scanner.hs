@@ -14,7 +14,6 @@ import Data.Function ((&))
 import Data.STRef
 import Data.Vector (Vector)
 import Data.Vector qualified as V
-import Debug.Trace (traceShow)
 import FlatParse.Common.Parser (STMode)
 import FlatParse.Stateful
 import Token
@@ -99,13 +98,6 @@ simpleScanToken =
             |]
        )
 
-withError :: ParserT st r e a -> (e -> ParserT st r e a) -> ParserT st r e a
-withError (ParserT f) hdl =
-  ParserT $ \foreignPtrContents r eob s int st -> case f foreignPtrContents r eob s int st of
-    Err# st' er -> case hdl er of
-      ParserT g -> g foreignPtrContents r eob s int st'
-    x -> x
-
 appendSTRefSCanErrors :: STRef s ScanErr -> ScannerError -> ST s ()
 appendSTRefSCanErrors stref er = modifySTRef' stref (apndScanningErrors er)
   where
@@ -124,11 +116,9 @@ scanToken = do
 scanTokens :: ParserT (STMode s) (STRef s ScanErr) e (Vector Token)
 scanTokens = mymany' scanToken
 
--- mymany' :: ParserT (STMode s) (STRef s ScanErr) e Token -> ParserT (STMode s) (STRef s ScanErr) e (Vector Token)
 mymany' :: ParserT st r e Token -> ParserT st r e (Vector Token)
 mymany' i@(ParserT f) = ParserT go
   where
-    -- go :: ForeignPtrContents -> STRef s ScanErr -> Addr# -> Addr# -> Int# -> STMode s -> Res# (STMode s) e a
     go fp !stref eob s n st =
       case f fp stref eob s n st of
         OK# st a s n ->
