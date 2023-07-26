@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Scanner where
+module Scanner (CodeError (..), ScannerError (..), printErrs, scanFile) where
 
 import Control.Monad.ST
 import Control.Monad.ST.Unsafe (unsafeIOToST)
