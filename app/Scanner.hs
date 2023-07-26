@@ -57,14 +57,11 @@ printErrs completeBS vec =
             <> B.singleton ch
             <> "'"
 
-unsafeRunParserST :: ParserST s (STRef s c) e a -> STRef s c -> Int -> ByteString -> ST s (Result e a)
-unsafeRunParserST pst !r i buf = unsafeIOToST (runParserIO (unsafeCoerce pst) r i buf)
-
 scanFile :: ByteString -> ST s (Either CodeError (Vector ScannerError, Vector Token, ByteString))
 scanFile bs = do
   stRef <- newSTRef $ ScanErr V.empty
 
-  res <- unsafeRunParserST scanTokens stRef 0 bs
+  res <- runParserST scanTokens stRef 0 bs
 
   (ScanErr errVec) <- readSTRef stRef
   pure $ case res of

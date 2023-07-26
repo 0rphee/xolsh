@@ -3,7 +3,14 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: flatparse-0.5.0.0@sha256:2add362471097c91fa79fc92471f3424b278af8297a9bd040ade5130bc5e00fa,4537
+    pantry-tree:
+      sha256: 2421b91d6d7c28d51ab1089b16058d6fd1d769deae8228dd287a2162e38e6bad
+      size: 2341
+  original:
+    hackage: flatparse-0.5.0.0
 snapshots:
 - completed:
     sha256: c4381351ba5837a6356fcc0ebeb7a61fdcaf3a085c903a6f730f56b131d5cb58
