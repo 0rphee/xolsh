@@ -7,19 +7,24 @@ import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Function ((&))
 import Data.Vector (Vector)
-import Scanner (CodeError (..), ScannerError (..), ppPrintErr, printErrs, scanFile)
+import Scanner
+  ( CodeError (..)
+  , ScannerError (..)
+  , ppPrintErr
+  , printErrs
+  , scanFile
+  )
 import System.Exit (ExitCode (..), exitWith)
 import System.IO (stderr)
 import Token
 
-newtype AppState = StateErr Bool
+newtype AppState
+  = StateErr Bool
 
 -- Define a monad stack using MTL
 newtype AppM a
-  = AppM
-      ( StateT AppState IO a
-      )
-  deriving (Functor, Applicative, Monad, MonadState AppState, MonadIO)
+  = AppM (StateT AppState IO a)
+  deriving (Applicative, Functor, Monad, MonadIO, MonadState AppState)
 
 runAppM :: AppM a -> IO a
 runAppM (AppM x) = evalStateT x initialState
@@ -41,7 +46,7 @@ runFile path = do
   (StateErr err) <- get
   when err (liftIO $ exitWith (ExitFailure 65))
 
-runPrompt :: (MonadIO m) => m ()
+runPrompt :: MonadIO m => m ()
 runPrompt = forever $ do
   liftIO $ B.putStr "> "
   line <- liftIO B.getLine
@@ -50,12 +55,13 @@ runPrompt = forever $ do
       then B.putStr "\n"
       else run line
 
-run :: (MonadIO m) => ByteString -> m ()
+run :: MonadIO m => ByteString -> m ()
 run sourceBS = do
   let tokens = scan sourceBS
   liftIO $ printRes tokens
   where
-    printRes :: Either CodeError (Vector ScannerError, Vector Token, ByteString) -> IO ()
+    printRes
+      :: Either CodeError (Vector ScannerError, Vector Token, ByteString) -> IO ()
     printRes toks = case toks of
       Right (errVec, v, restOfBS) ->
         let p = B.putStrLn . B.pack . show
@@ -65,7 +71,8 @@ run sourceBS = do
               B.putStrLn ("Rest of BS: " <> restOfBS)
       Left e -> ppPrintErr e
 
-scan :: ByteString -> Either CodeError (Vector ScannerError, Vector Token, ByteString)
+scan
+  :: ByteString -> Either CodeError (Vector ScannerError, Vector Token, ByteString)
 scan b = runST $ scanFile b
 
 reportError :: (MonadIO m, MonadState AppState m) => Int -> ByteString -> m ()

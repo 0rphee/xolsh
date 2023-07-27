@@ -30,7 +30,7 @@ data CodeError
 newtype ScanErr = ScanErr (Vector ScannerError)
   deriving (Show)
 
-printErrs :: (MonadIO m) => ByteString -> Vector ScannerError -> m ()
+printErrs :: MonadIO m => ByteString -> Vector ScannerError -> m ()
 printErrs completeBS vec =
   if V.null vec
     then liftIO $ B.putStrLn "No Errors!"
@@ -51,7 +51,7 @@ printErrs completeBS vec =
           f cErrorConstructor (l, c) = cErrorConstructor (l + 1, c + 1) -- start col/line numbers from 1
        in zipWith f charList linecols
 
-ppPrintErr :: (MonadIO m) => CodeError -> m ()
+ppPrintErr :: MonadIO m => CodeError -> m ()
 ppPrintErr e = liftIO $ B.putStrLn (lineColStr <> restStr)
   where
     (line, col, restStr) =
@@ -65,7 +65,9 @@ ppPrintErr e = liftIO $ B.putStrLn (lineColStr <> restStr)
         <> (col & show & B.pack)
         <> "] Error: "
 
-scanFile :: ByteString -> ST s (Either CodeError (Vector ScannerError, Vector Token, ByteString))
+scanFile
+  :: ByteString
+  -> ST s (Either CodeError (Vector ScannerError, Vector Token, ByteString))
 scanFile bs = do
   stRef <- newSTRef $ ScanErr V.empty
 
