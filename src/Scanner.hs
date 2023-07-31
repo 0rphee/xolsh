@@ -1,25 +1,30 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Scanner (CodeError (..), ScannerError (..), printErrs, scanFile, ppPrintErr) where
+module Scanner where -- (CodeError (..), ScannerError (..), printErrs, scanFile, ppPrintErr)
 
 import Control.Monad.ST
 import Control.Monad.Writer.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Function ((&))
+import Data.Ratio ((%))
 import Data.STRef
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Debug.Trace (traceShow, traceShowId)
 import FlatParse.Common.Parser (STMode)
 import FlatParse.Stateful
 import Token
 
 data ScannerError
-  = UnexpectedCharacter Char Pos
+  = UnexpectedCharacter Pos Char
   | UnterminatedString Pos
+  | InvalidNumberLiteral Pos ByteString
+  | FailedNumber
   deriving (Show)
 
 data CodeError
@@ -38,7 +43,7 @@ printErrs completeBS vec =
       mapM_ ppPrintErr finalLi
   where
     (charVec, posVec) =
-      let f' (UnexpectedCharacter ch pos) = (CUnexpectedCharacter ch, pos)
+      let f' (UnexpectedCharacter pos ch) = (CUnexpectedCharacter ch, pos)
           f' (UnterminatedString pos) = (CUnterminatedString, pos)
        in V.unzip $ fmap f' vec
 
@@ -77,7 +82,7 @@ scanFile bs = do
   pure $ case res of
     OK vec _ restOfBs -> Right (errVec, vec, restOfBs)
     Err e -> case e of
-      UnexpectedCharacter ch pos ->
+      UnexpectedCharacter pos ch ->
         let [linecol] = posLineCols bs [pos] -- only one position, the pattern will always be matched
          in Left $ CUnexpectedCharacter ch linecol
       UnterminatedString pos ->
@@ -87,33 +92,37 @@ scanFile bs = do
 
 simpleScanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 simpleScanToken =
-  let returnTok = pure . (`Token` Nothing)
-   in $( switch
-          [|
-            case _ of
-              "(" -> returnTok LEFT_PAREN
-              ")" -> returnTok RIGHT_PAREN
-              "{" -> returnTok LEFT_BRACE
-              "}" -> returnTok RIGHT_BRACE
-              "," -> returnTok COMMA
-              "." -> returnTok DOT
-              "-" -> returnTok MINUS
-              "+" -> returnTok PLUS
-              ";" -> returnTok SEMICOLON
-              "*" -> returnTok STAR
-              "!" -> returnTok BANG
-              "!=" -> returnTok BANG_EQUAL
-              "=" -> returnTok EQUAL
-              "==" -> returnTok EQUAL_EQUAL
-              "<" -> returnTok LESS
-              "<=" -> returnTok LESS_EQUAL
-              ">" -> returnTok GREATER
-              ">=" -> returnTok GREATER_EQUAL
-              "/" -> returnTok SLASH
-              "\"" -> parseString
-            |]
-       )
-{-# INLINE simpleScanToken #-}
+  $( switch
+      [|
+        case _ of
+          "(" -> pure LEFT_PAREN
+          ")" -> pure RIGHT_PAREN
+          "{" -> pure LEFT_BRACE
+          "}" -> pure RIGHT_BRACE
+          "," -> pure COMMA
+          "." -> pure DOT
+          "-" -> pure MINUS
+          "+" -> pure PLUS
+          ";" -> pure SEMICOLON
+          "*" -> pure STAR
+          "!" -> pure BANG
+          "!=" -> pure BANG_EQUAL
+          "=" -> pure EQUAL
+          "==" -> pure EQUAL_EQUAL
+          "<" -> pure LESS
+          "<=" -> pure LESS_EQUAL
+          ">" -> pure GREATER
+          ">=" -> pure GREATER_EQUAL
+          "/" -> pure SLASH
+          "\"" -> parseString
+          _ ->
+            withError
+              parseNumber
+              (\FailedNumber -> skipMany (skipSatisfyAscii isDigit) >> scanToken)
+        |]
+   )
+
+-- {-# INLINE simpleScanToken #-}
 
 appendSTRefSCanErrors :: STRef s ScanErr -> ScannerError -> ST s ()
 appendSTRefSCanErrors stref er = modifySTRef' stref (apndScanningErrors er)
@@ -127,7 +136,7 @@ scanToken = do
     pos <- getPos
     ch <- lookahead anyChar
     stref :: STRef s ScanErr <- ask
-    liftST $ appendSTRefSCanErrors stref $ UnexpectedCharacter ch pos
+    liftST $ appendSTRefSCanErrors stref $ UnexpectedCharacter pos ch
     failed
 
 scanTokens :: ParserT (STMode s) (STRef s ScanErr) ScannerError (Vector Token)
@@ -187,7 +196,7 @@ skipWhiteSpace =
    )
 
 parseString :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
-parseString = Token STRING . Just <$> parse
+parseString = STRING <$> parse
   where
     parse = do
       pos <- lookahead (skipBack 1 >> getPos)
@@ -199,4 +208,48 @@ parseString = Token STRING . Just <$> parse
             stref :: STRef s ScanErr <- ask
             liftST $ appendSTRefSCanErrors stref $ UnterminatedString pos
             err $ UnterminatedString pos
+        )
+
+parseNumber :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
+parseNumber =
+  parse
+    <|> (skipMany (skipSatisfyAscii (\n -> isDigit n || n == '.')) >> err undefined)
+  where
+    parse = do
+      initialPos <- getPos
+      initChar <- traceShowId <$> lookahead anyChar
+
+      firstBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
+
+      nBeforeDot <- case B.readInt firstBs of
+        Just (numBeforeDot, _) -> pure numBeforeDot
+        Nothing -> do
+          stref <- ask
+          liftST $ appendSTRefSCanErrors stref $ InvalidNumberLiteral initialPos firstBs
+          failed
+
+      let n1 = fromIntegral nBeforeDot
+      branch
+        (skipSatisfyAscii (== '.'))
+        ( do
+            chPos <- getPos
+            ch <- lookahead anyChar
+            if isDigit ch
+              then do
+                secondBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
+                let (Just (numAfterDot, _)) = B.readInt secondBs
+                    n2 = fromIntegral numAfterDot / (10 ^ B.length secondBs)
+                pure $ NUMBER (n1 + n2)
+              else do
+                stref <- ask
+                liftST $
+                  appendSTRefSCanErrors stref $
+                    InvalidNumberLiteral initialPos (B.snoc firstBs '.')
+                failed
+                -- err
+                --  $ UnexpectedCharacter chPos ch
+        )
+        ( do
+            fails eof
+            pure $ traceShowId $ NUMBER n1
         )

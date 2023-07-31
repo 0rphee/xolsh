@@ -1,8 +1,8 @@
-module Token where
+module Token (Token (..)) where
 
 import Data.ByteString.Char8 as B
 
-data TokenType
+data Token
   = --   Single-character tokens.
     LEFT_PAREN
   | RIGHT_PAREN
@@ -26,8 +26,8 @@ data TokenType
   | LESS_EQUAL
   | --   Literals.
     IDENTIFIER
-  | STRING
-  | NUMBER
+  | STRING !ByteString
+  | NUMBER !Double
   | --    Keywords.
     AND
   | CLASS
@@ -48,10 +48,10 @@ data TokenType
   | EOF
   deriving (Show)
 
-data Token = Token
-  { tokType :: !TokenType
-  , tokLexeme :: !(Maybe ByteString)
-  -- , -- , tokLiteral :: a
-  -- tokLine :: !Int
-  }
-  deriving (Show)
+-- data Token = Token
+--   { tokType :: !TokenType
+--   , tokLexeme :: !(Maybe ByteString)
+--   -- , -- , tokLiteral :: a
+--   -- tokLine :: !Int
+--   }
+--   deriving (Show)
