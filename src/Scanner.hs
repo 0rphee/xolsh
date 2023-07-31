@@ -129,14 +129,18 @@ appendSTRefSCanErrors stref er = modifySTRef' stref (apndScanningErrors er)
   where
     apndScanningErrors codeError (ScanErr v) = ScanErr $ V.snoc v codeError
 
+reportError :: ScannerError -> ParserT (STMode s) (STRef s ScanErr) e ()
+reportError e = do
+  stref <- ask
+  liftST $ appendSTRefSCanErrors stref e
+
 scanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 scanToken = do
   skipWhiteSpace
   simpleScanToken <|> do
     pos <- getPos
     ch <- lookahead anyChar
-    stref :: STRef s ScanErr <- ask
-    liftST $ appendSTRefSCanErrors stref $ UnexpectedCharacter pos ch
+    reportError $ UnexpectedCharacter pos ch
     failed
 
 scanTokens :: ParserT (STMode s) (STRef s ScanErr) ScannerError (Vector Token)
@@ -205,8 +209,7 @@ parseString = STRING <$> parse
         advance
         (pure bs)
         ( do
-            stref :: STRef s ScanErr <- ask
-            liftST $ appendSTRefSCanErrors stref $ UnterminatedString pos
+            reportError $ UnterminatedString pos
             err $ UnterminatedString pos
         )
 
@@ -224,8 +227,7 @@ parseNumber =
       nBeforeDot <- case B.readInt firstBs of
         Just (numBeforeDot, _) -> pure numBeforeDot
         Nothing -> do
-          stref <- ask
-          liftST $ appendSTRefSCanErrors stref $ InvalidNumberLiteral initialPos firstBs
+          reportError $ InvalidNumberLiteral initialPos firstBs
           failed
 
       let n1 = fromIntegral nBeforeDot
@@ -241,10 +243,7 @@ parseNumber =
                     n2 = fromIntegral numAfterDot / (10 ^ B.length secondBs)
                 pure $ NUMBER (n1 + n2)
               else do
-                stref <- ask
-                liftST $
-                  appendSTRefSCanErrors stref $
-                    InvalidNumberLiteral initialPos (B.snoc firstBs '.')
+                reportError $ InvalidNumberLiteral initialPos (B.snoc firstBs '.')
                 failed
                 -- err
                 --  $ UnexpectedCharacter chPos ch
