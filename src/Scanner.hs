@@ -11,11 +11,10 @@ import Control.Monad.Writer.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Function ((&))
-import Data.Ratio ((%))
 import Data.STRef
 import Data.Vector (Vector)
 import Data.Vector qualified as V
-import Debug.Trace (traceShow, traceShowId)
+import Debug.Trace (trace, traceShow, traceShowId)
 import FlatParse.Common.Parser (STMode)
 import FlatParse.Stateful
 import Token
@@ -23,13 +22,13 @@ import Token
 data ScannerError
   = UnexpectedCharacter Pos Char
   | UnterminatedString Pos
-  | InvalidNumberLiteral Pos ByteString
-  | FailedNumber
+  | InvalidNumberLiteral Pos Pos ByteString
   deriving (Show)
 
 data CodeError
   = CUnexpectedCharacter Char (Int, Int)
   | CUnterminatedString (Int, Int)
+  | CInvalidNumberLiteral (Int, Int) ByteString
   deriving (Show)
 
 newtype ScanErr = ScanErr (Vector ScannerError)
@@ -45,6 +44,7 @@ printErrs completeBS vec =
     (charVec, posVec) =
       let f' (UnexpectedCharacter pos ch) = (CUnexpectedCharacter ch, pos)
           f' (UnterminatedString pos) = (CUnterminatedString, pos)
+          f' (InvalidNumberLiteral pos _ bs) = ((`CInvalidNumberLiteral` bs), pos)
        in V.unzip $ fmap f' vec
 
     linecols :: [(Int, Int)]
@@ -63,6 +63,7 @@ ppPrintErr e = liftIO $ B.putStrLn (lineColStr <> restStr)
       case e of
         CUnexpectedCharacter ch (l, c) -> (l, c, "UnexpectedCharacter '" <> B.singleton ch <> "'")
         CUnterminatedString (l, c) -> (l, c, "UnterminatedString")
+        CInvalidNumberLiteral (l, c) bs -> (l, c, "InvalidNumberLiteral '" <> bs <> "'")
     lineColStr =
       "[line: "
         <> (line & show & B.pack)
@@ -88,6 +89,9 @@ scanFile bs = do
       UnterminatedString pos ->
         let [linecol] = posLineCols bs [pos]
          in Left $ CUnterminatedString linecol
+      InvalidNumberLiteral pos _ errBs ->
+        let [linecol] = posLineCols bs [pos]
+         in Left $ CInvalidNumberLiteral linecol errBs
     _ -> error "failure should never propagate here"
 
 simpleScanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
@@ -115,10 +119,7 @@ simpleScanToken =
           ">=" -> pure GREATER_EQUAL
           "/" -> pure SLASH
           "\"" -> parseString
-          _ ->
-            withError
-              parseNumber
-              (\FailedNumber -> skipMany (skipSatisfyAscii isDigit) >> scanToken)
+          _ -> parseNumber
         |]
    )
 
@@ -144,7 +145,7 @@ scanToken = do
     failed
 
 scanTokens :: ParserT (STMode s) (STRef s ScanErr) ScannerError (Vector Token)
-scanTokens = mymany' scanToken
+scanTokens = tryUntilEOF scanToken
 
 withAnyResult
   :: ParserT st r e a -- initial parser
@@ -160,31 +161,25 @@ withAnyResult (ParserT initial) whenSuccess (ParserT whenFailure) whenError =
       Err# st' e -> runParserT# (whenError e) fp r eob s n st'
 {-# INLINE withAnyResult #-}
 
--- mymany' :: ParserT st r e Token -> ParserT st r e (Vector Token)
-mymany' :: ParserT st r ScannerError a -> ParserT st r ScannerError (Vector a)
-mymany' i@(ParserT f) = ParserT go
+tryUntilEOF
+  :: ParserST s (STRef s ScanErr) ScannerError a
+  -> ParserST s (STRef s ScanErr) ScannerError (Vector a)
+tryUntilEOF p = go
   where
-    go fp !stref eob s n st =
-      case f fp stref eob s n st of
-        OK# st a s n ->
-          case go fp stref eob s n st of
-            OK# st as s n -> OK# st (V.cons a as) s n
-            x -> x
-        Fail# st ->
-          let (ParserT b) =
-                branch
-                  eof
-                  (pure V.empty)
-                  ( do
-                      skipWhiteSpace
-                      branch advance (mymany' i) (pure V.empty)
-                  )
-           in b fp stref eob s n st
-        Err# st e -> case e of
-          UnterminatedString _ ->
-            let ParserT h = setPos endPos >> mymany' i
-             in h fp stref eob s n st
-          _ -> Err# st e
+    go =
+      withAnyResult
+        p
+        (\a -> V.cons a <$> go)
+        (branch (skip 1) go (pure V.empty))
+        ( \e -> do
+            reportError e
+            case e of
+              UnterminatedString _ -> setPos endPos >> go
+              InvalidNumberLiteral _ failingPos _ -> setPos failingPos >> go
+              _ -> do
+                branch (skip 1) go (pure V.empty)
+        )
+{-# INLINE tryUntilEOF #-}
 
 skipLineComment :: ParserT st r e ()
 skipLineComment =
@@ -230,39 +225,39 @@ parseString = STRING <$> parse
 parseNumber :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 parseNumber =
   parse
-    <|> (skipMany (skipSatisfyAscii (\n -> isDigit n || n == '.')) >> err undefined)
   where
     parse = do
       initialPos <- getPos
-      initChar <- traceShowId <$> lookahead anyChar
 
       firstBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
 
-      nBeforeDot <- case B.readInt firstBs of
+      nBeforeDot <- case B.readInt (traceShowId firstBs) of
         Just (numBeforeDot, _) -> pure numBeforeDot
         Nothing -> do
-          reportError $ InvalidNumberLiteral initialPos firstBs
           failed
 
       let n1 = fromIntegral nBeforeDot
       branch
         (skipSatisfyAscii (== '.'))
         ( do
-            chPos <- getPos
-            ch <- lookahead anyChar
-            if isDigit ch
-              then do
-                secondBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
-                let (Just (numAfterDot, _)) = B.readInt secondBs
-                    n2 = fromIntegral numAfterDot / (10 ^ B.length secondBs)
-                pure $ NUMBER (n1 + n2)
-              else do
-                reportError $ InvalidNumberLiteral initialPos (B.snoc firstBs '.')
-                failed
-                -- err
-                --  $ UnexpectedCharacter chPos ch
+            dotPos <- getPos
+            cmaybe <- optional (lookahead anyChar)
+            case cmaybe of
+              Nothing -> err $ InvalidNumberLiteral initialPos dotPos (B.snoc firstBs '.')
+              Just ch ->
+                if isDigit ch
+                  then do
+                    secondBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
+                    let (Just (numAfterDot, _)) = B.readInt secondBs
+                        n2 = fromIntegral numAfterDot / (10 ^ B.length secondBs)
+                    pure $ NUMBER (n1 + n2)
+                  else do
+                    skipBack 1
+                    invalidRest <-
+                      byteStringOf $
+                        skipMany
+                          (skipSatisfyAscii (\c -> c /= ' ' || c /= '\n' || c /= '\t' || c /= '\n'))
+                    finalPos <- getPos
+                    err $ InvalidNumberLiteral initialPos finalPos (firstBs <> invalidRest)
         )
-        ( do
-            fails eof
-            pure $ traceShowId $ NUMBER n1
-        )
+        (pure $ NUMBER n1)
