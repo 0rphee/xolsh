@@ -146,6 +146,20 @@ scanToken = do
 scanTokens :: ParserT (STMode s) (STRef s ScanErr) ScannerError (Vector Token)
 scanTokens = mymany' scanToken
 
+withAnyResult
+  :: ParserT st r e a -- initial parser
+  -> (a -> ParserT st r e res) -- success
+  -> ParserT st r e res -- failure
+  -> (e -> ParserT st r e res) -- error
+  -> ParserT st r e res
+withAnyResult (ParserT initial) whenSuccess (ParserT whenFailure) whenError =
+  ParserT \fp !r eob s n st ->
+    case initial fp r eob s n st of
+      OK# st' a s' n' -> runParserT# (whenSuccess a) fp r eob s' n' st'
+      Fail# st' -> whenFailure fp r eob s n st'
+      Err# st' e -> runParserT# (whenError e) fp r eob s n st'
+{-# INLINE withAnyResult #-}
+
 -- mymany' :: ParserT st r e Token -> ParserT st r e (Vector Token)
 mymany' :: ParserT st r ScannerError a -> ParserT st r ScannerError (Vector a)
 mymany' i@(ParserT f) = ParserT go
