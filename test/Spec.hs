@@ -15,21 +15,17 @@ import Token (Token (NUMBER))
 main :: IO ()
 main = defaultMain tests
 
--- tests :: TestTree
--- tests =
---   testGroup
---     "QuickCheckTests"
---     [ testProperty "motmami" simpleDouble
---     ]
-
--- simpleDouble :: Gen (Maybe Property)
--- simpleDouble = do
---   double :: Double <-
---     (\a -> traceShowId $ fromIntegral a) <$> (arbitraryBoundedIntegral :: Gen Int)
---   let bsDouble = B.pack $ show double
---   pure $ case runParser parseNumber True 0 bsDouble of
---     OK (NUMBER res) _ _ -> Just $ res === double
---     _ -> Nothing
+simpleDouble :: Gen (Maybe Property)
+simpleDouble = do
+  double :: Double <- traceShowId <$> (choose (-1000, 1000) :: Gen Double)
+  let bsDouble = B.pack $ show double
+      r = runST $ do
+        stref <- newSTRef $ ScanErr V.empty
+        rr <- runParserST parseNumber stref 0 bsDouble
+        pure $ case rr of
+          OK (NUMBER res) _ _ -> Just $ res === double
+          _ -> Nothing
+  pure r
 
 success :: Assertion
 success = pure ()
@@ -42,7 +38,8 @@ showErrorsCollected ref = do
 tests =
   testGroup
     "parseNumber"
-    [ testCase "12345 @?= parseNumber" $ do
+    [ testProperty "simpleDouble" simpleDouble
+    , testCase "12345 @?= parseNumber" $ do
         stref <- stToIO . newSTRef $ ScanErr V.empty
         let double = 12345
         r <- stToIO $ runParserST parseNumber stref 0 (B.pack $ show double)
