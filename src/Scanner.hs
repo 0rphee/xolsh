@@ -231,7 +231,7 @@ parseNumber =
 
       firstBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
 
-      nBeforeDot <- case B.readInt (traceShowId firstBs) of
+      nBeforeDot <- case B.readInt firstBs of
         Just (numBeforeDot, _) -> pure numBeforeDot
         Nothing -> do
           failed
