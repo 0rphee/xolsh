@@ -15,60 +15,96 @@ import Token (Token (NUMBER))
 main :: IO ()
 main = defaultMain tests
 
-simpleDouble :: Gen (Maybe Property)
-simpleDouble = do
-  double :: Double <- traceShowId <$> (choose (-1000, 1000) :: Gen Double)
-  let bsDouble = B.pack $ show double
-      r = runST $ do
-        stref <- newSTRef $ ScanErr V.empty
-        rr <- runParserST parseNumber stref 0 bsDouble
-        pure $ case rr of
-          OK (NUMBER res) _ _ -> Just $ res === double
-          _ -> Nothing
-  pure r
-
 success :: Assertion
 success = pure ()
 
-showErrorsCollected :: Show a => STRef RealWorld a -> IO ()
-showErrorsCollected ref = do
-  errs <- stToIO $ readSTRef ref
-  Prelude.putStrLn $ "Parser collected failures: \n" <> show errs
+parseNumberProp :: Property
+parseNumberProp = property $ do
+  (d, r) <- doubleGen
+  let a = case r of
+        OK (NUMBER res) _ _ -> res === d
+        OK otherTok _ _ ->
+          counterexample
+            ("Parsed incorrect token '" <> show otherTok <> "' failed")
+            (property False)
+        Fail ->
+          counterexample
+            ("Parsing of '" <> show d <> "' failed")
+            (property False)
+        Err e ->
+          counterexample
+            ("Pailed with parsing error '" <> show e <> "'")
+            (property False)
+  pure $ label ("Parse '" <> show d <> "'") a
+  where
+    doubleGen :: Gen (Double, Result ScannerError Token)
+    doubleGen = do
+      d <- choose (-1000, 1000)
+      let bsDouble = B.pack $ show d
+      let r = runST $ do
+            stref <- newSTRef $ ScanErr V.empty
+            runParserST parseNumber stref 0 bsDouble
 
+      pure (d, r)
+
+showErrorsCollected :: ByteString -> STRef RealWorld ScanErr -> IO ()
+showErrorsCollected bs ref = do
+  (ScanErr v) <- stToIO $ readSTRef ref
+  B.putStrLn "Parser collected failures: "
+  printErrs bs v
+
+tests :: TestTree
 tests =
   testGroup
-    "parseNumber"
-    [ testProperty "simpleDouble" simpleDouble
+    "Test 'parseNumber'"
+    [ testProperty "Parse (NUMBER Double) from 'choose (-1000, 1000)'" parseNumberProp
     , testCase "12345 @?= parseNumber" $ do
         stref <- stToIO . newSTRef $ ScanErr V.empty
         let double = 12345
-        r <- stToIO $ runParserST parseNumber stref 0 (B.pack $ show double)
+            doubleBS = B.pack $ show double
+        r <- stToIO $ runParserST parseNumber stref 0 doubleBS
         case r of
           OK (NUMBER res) _ _ -> double @?= res
           OK otherTok _ _ -> do
-            showErrorsCollected stref
             assertFailure $
               "Incorrect Token: " <> show otherTok <> " Expected: NUMBER " <> show double
           Fail -> do
-            showErrorsCollected stref
             assertFailure "Fail"
           Err e -> do
-            showErrorsCollected stref
             assertFailure $ "Error: " <> show e
-    , testCase "12345. parseNumber" $ do
+    , testCase "12345. parseNumber fail" $ do
         stref <- stToIO . newSTRef $ ScanErr V.empty
-        let doubleStr = "12345."
-        r <- stToIO $ runParserST parseNumber stref 0 doubleStr
+        let doubleBS = "12345."
+        r <- stToIO $ runParserST parseNumber stref 0 doubleBS
         case r of
           OK anyTok _ _ -> do
-            showErrorsCollected stref
             assertFailure $
-              "Should not parse Token: " <> show anyTok <> " expected parsing failure "
+              "Should not parse Token: " <> show anyTok <> " expected parsing failure"
           Fail -> do
-            B.putStrLn "Correctly failed parser"
-            showErrorsCollected stref
-            success
+            assertFailure "Uncorrectly failed parser"
           Err e -> do
-            showErrorsCollected stref
-            assertFailure $ "Unexpected Error: '" <> show e <> "' expected parsing failure"
+            case e of
+              InvalidNumberLiteral _ _ errBs -> do
+                success
+              _ ->
+                assertFailure $
+                  "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
+    , testCase "12345.a parseNumber fail" $ do
+        stref <- stToIO . newSTRef $ ScanErr V.empty
+        let doubleBS = "12345.a"
+        r <- stToIO $ runParserST parseNumber stref 0 doubleBS
+        case r of
+          OK anyTok _ _ -> do
+            assertFailure $
+              "Should not parse Token: " <> show anyTok <> " expected parsing failure"
+          Fail -> do
+            -- showErrorsCollected doubleBS stref
+            assertFailure "Uncorrectly failed parser"
+          Err e -> do
+            case e of
+              InvalidNumberLiteral _ _ errBs -> do
+                success
+              _ ->
+                assertFailure $
+                  "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
     ]
