@@ -119,7 +119,6 @@ simpleScanToken =
           ">=" -> pure GREATER_EQUAL
           "/" -> pure SLASH
           "\"" -> parseString
-          _ -> parseNumber
         |]
    )
 
@@ -138,7 +137,7 @@ reportError e = do
 scanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 scanToken = do
   skipWhiteSpace
-  simpleScanToken <|> do
+  simpleScanToken <|> parseNumber <|> do
     pos <- getPos
     ch <- lookahead anyChar
     reportError $ UnexpectedCharacter pos ch
