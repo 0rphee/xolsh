@@ -2,6 +2,7 @@ module Main (main) where
 
 import Control.Monad.ST
 import Data.ByteString.Char8 as B
+import Data.Foldable as F
 import Data.STRef
 import Data.Vector as V
 import Debug.Trace (traceShow, traceShowId)
@@ -10,7 +11,7 @@ import Scanner
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
-import Token (Token (NUMBER))
+import Token (Token (..))
 
 main :: IO ()
 main = defaultMain tests
@@ -47,14 +48,78 @@ parseNumberProp = property $ do
 
       pure (d, r)
 
-showErrorsCollected :: ByteString -> STRef RealWorld ScanErr -> IO ()
-showErrorsCollected bs ref = do
-  (ScanErr v) <- stToIO $ readSTRef ref
-  B.putStrLn "Parser collected failures: "
-  printErrs bs v
+parseSimpleTokProp :: Property
+parseSimpleTokProp = property $ do
+  (bs, v, r) <- simpleTokGen
+  let a = case r of
+        OK resultVec _ _ ->
+          -- resultVec === v
+          counterexample
+            ( "Parsed incorrect token Vector \n'"
+                <> show resultVec
+                <> "'\n and correctT token Vector \n'"
+                <> show v
+                <> "'\n ORIGINAL BS:\n"
+                <> show bs
+            )
+            (property $ resultVec == v)
+        Fail ->
+          counterexample
+            ("Parsing of '" <> show bs <> "' failed")
+            (property False)
+        Err e ->
+          counterexample
+            ("Pailed with parsing error '" <> show e <> "'")
+            (property False)
+  pure a
+  where
+    tokPairGen :: Gen (ByteString, Token)
+    tokPairGen =
+      elements
+        [ ("(", LEFT_PAREN)
+        , (")", RIGHT_PAREN)
+        , ("{", LEFT_BRACE)
+        , ("}", RIGHT_BRACE)
+        , (",", COMMA)
+        , (".", DOT)
+        , ("-", MINUS)
+        , ("+", PLUS)
+        , (";", SEMICOLON)
+        , ("*", STAR)
+        , ("!", BANG)
+        , ("!=", BANG_EQUAL)
+        , ("=", EQUAL)
+        , ("==", EQUAL_EQUAL)
+        , ("<", LESS)
+        , ("<=", LESS_EQUAL)
+        , (">", GREATER)
+        , (">=", GREATER_EQUAL)
+        , ("/", SLASH)
+        ]
 
-tests :: TestTree
-tests =
+    tokPairBSVecGen :: Gen (ByteString, Vector Token)
+    tokPairBSVecGen = do
+      l <- vectorOf 100 tokPairGen
+      let f (prevBS, prevVec) (nextBS, nextTok) = (prevBS <> " " <> nextBS, V.snoc prevVec nextTok)
+      pure $ F.foldl' f (B.empty, V.empty) l
+
+    simpleTokGen
+      :: Gen (ByteString, Vector Token, Result ScannerError (Vector Token))
+    simpleTokGen = do
+      (bs, tokVec) <- tokPairBSVecGen
+      let r = runST $ do
+            stref <- newSTRef $ ScanErr V.empty
+            runParserST (tryUntilEOF simpleScanToken) stref 0 bs
+      pure (bs, tokVec, r)
+
+parseSimpleTokenTests :: TestTree
+parseSimpleTokenTests =
+  testGroup
+    "Test 'simpleScanToken'"
+    [testProperty "Parse a generated (Vector Token)" parseSimpleTokProp]
+
+parseNumberTests :: TestTree
+parseNumberTests =
   testGroup
     "Test 'parseNumber'"
     [ testProperty "Parse (NUMBER Double) from 'choose (-1000, 1000)'" parseNumberProp
@@ -107,4 +172,12 @@ tests =
               _ ->
                 assertFailure $
                   "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
+    ]
+
+tests :: TestTree
+tests =
+  testGroup
+    "Parsing tests"
+    [ parseSimpleTokenTests
+    , parseNumberTests
     ]

@@ -46,7 +46,7 @@ data Token
   | VAR
   | WHILE
   | EOF
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- data Token = Token
 --   { tokType :: !TokenType
