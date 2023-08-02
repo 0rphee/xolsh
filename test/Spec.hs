@@ -149,7 +149,7 @@ parseNumberTests =
             assertFailure "Uncorrectly failed parser"
           Err e -> do
             case e of
-              InvalidNumberLiteral _ _ errBs -> do
+              InvalidNumberLiteral {} -> do
                 success
               _ ->
                 assertFailure $
@@ -167,7 +167,7 @@ parseNumberTests =
             assertFailure "Uncorrectly failed parser"
           Err e -> do
             case e of
-              InvalidNumberLiteral _ _ errBs -> do
+              InvalidNumberLiteral {} -> do
                 success
               _ ->
                 assertFailure $
