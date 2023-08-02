@@ -216,10 +216,7 @@ parseString = STRING <$> parse
       branch
         advance
         (pure bs)
-        ( do
-            reportError $ UnterminatedString pos
-            err $ UnterminatedString pos
-        )
+        (err $ UnterminatedString pos)
 
 parseNumber :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 parseNumber =
