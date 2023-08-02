@@ -33,7 +33,7 @@ data Token
   | CLASS
   | ELSE
   | FALSE
-  | FUN
+  | FUNN
   | FOR
   | IF
   | NIL

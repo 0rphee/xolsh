@@ -137,7 +137,7 @@ reportError e = do
 scanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 scanToken = do
   skipWhiteSpace
-  simpleScanToken <|> parseNumber <|> do
+  simpleScanToken <|> parseNumber <|> parseKeywAndIdentif <|> do
     pos <- getPos
     ch <- lookahead anyChar
     reportError $ UnexpectedCharacter pos ch
@@ -257,3 +257,39 @@ parseNumber =
                     err $ InvalidNumberLiteral initialPos finalPos (firstBs <> invalidRest)
         )
         (pure $ NUMBER n1)
+
+isAlphaNumeric :: Char -> Bool
+isAlphaNumeric c = isLatinLetter c || isDigit c
+
+parseKeywAndIdentif :: ParserT st r e Token
+parseKeywAndIdentif =
+  let checkNext r =
+        branch
+          (lookahead (skipSatisfyAscii isAlphaNumeric))
+          (skipMany (skipSatisfyAscii isAlphaNumeric) >> pure IDENTIFIER)
+          (pure r)
+   in $( switch
+          [|
+            case _ of
+              "and" -> checkNext AND
+              "class" -> checkNext CLASS
+              "else" -> checkNext ELSE
+              "false" -> checkNext FALSE
+              "for" -> checkNext FOR
+              "fun" -> checkNext FUNN
+              "if" -> checkNext IF
+              "nil" -> checkNext NIL
+              "or" -> checkNext OR
+              "print" -> checkNext PRINT
+              "return" -> checkNext RETURN
+              "super" -> checkNext SUPER
+              "this" -> checkNext THIS
+              "true" -> checkNext TRUE
+              "var" -> checkNext VAR
+              "while" -> checkNext WHILE
+              _ -> do
+                skipSatisfyAscii isLatinLetter
+                skipMany (skipSatisfyAscii isAlphaNumeric)
+                pure IDENTIFIER
+            |]
+       )
