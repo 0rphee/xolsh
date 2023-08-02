@@ -174,10 +174,92 @@ parseNumberTests =
                   "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
     ]
 
+parseKeyAndIdentifProp :: Property
+parseKeyAndIdentifProp = property $ do
+  (bs, v, r) <- simpleTokGen
+  let a = case r of
+        OK resultVec _ _ ->
+          -- resultVec === v
+          counterexample
+            ( "Parsed incorrect token Vector \n'"
+                <> show resultVec
+                <> "'\n and correctT token Vector \n'"
+                <> show v
+                <> "'\n ORIGINAL BS:\n"
+                <> show bs
+            )
+            (property $ resultVec == v)
+        Fail ->
+          counterexample
+            ("Parsing of '" <> show bs <> "' failed")
+            (property False)
+        Err e ->
+          counterexample
+            ("Pailed with parsing error '" <> show e <> "'")
+            (property False)
+  pure a
+  where
+    tokPairGen :: Gen (ByteString, Token)
+    tokPairGen = do
+      v <-
+        vectorOf 10 gen
+      elements
+        ( [ ("and", AND)
+          , ("class", CLASS)
+          , ("else", ELSE)
+          , ("false", FALSE)
+          , ("for", FOR)
+          , ("fun", FUNN)
+          , ("if", IF)
+          , ("nil", NIL)
+          , ("or", OR)
+          , ("print", PRINT)
+          , ("return", RETURN)
+          , ("super", SUPER)
+          , ("this", THIS)
+          , ("true", TRUE)
+          , ("var", VAR)
+          , ("while", WHILE)
+          ]
+            <> v
+        )
+      where
+        gen = do
+          x <- suchThat (chooseEnum ('A', 'z')) isLatinLetter
+          xs <-
+            vectorOf 6 $
+              suchThat (chooseEnum ('0', 'z')) (\c -> isDigit c || isLatinLetter c)
+          pure (B.pack (x : xs), IDENTIFIER)
+
+    tokPairBSVecGen :: Gen (ByteString, Vector Token)
+    tokPairBSVecGen = do
+      l <- vectorOf 20 tokPairGen
+      let f (prevBS, prevVec) (nextBS, nextTok) = (prevBS <> " " <> nextBS, V.snoc prevVec nextTok)
+      pure $ F.foldl' f (B.empty, V.empty) l
+
+    simpleTokGen
+      :: Gen (ByteString, Vector Token, Result ScannerError (Vector Token))
+    simpleTokGen = do
+      (bs, tokVec) <- tokPairBSVecGen
+      let r = runST $ do
+            stref <- newSTRef $ ScanErr V.empty
+            runParserST (tryUntilEOF (skipWhiteSpace >> parseKeywAndIdentif)) stref 0 bs
+      pure (bs, tokVec, r)
+
+parseKeywAndIdentifTests :: TestTree
+parseKeywAndIdentifTests =
+  testGroup
+    "parseKeywAndIdentifTests"
+    [ testProperty
+        "Parse a generated (Vector Token) from Token Keywords"
+        parseKeyAndIdentifProp
+    ]
+
 tests :: TestTree
 tests =
   testGroup
     "Parsing tests"
     [ parseSimpleTokenTests
     , parseNumberTests
+    , parseKeywAndIdentifTests
     ]
