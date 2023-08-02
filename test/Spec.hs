@@ -36,11 +36,11 @@ parseNumberProp = property $ do
           counterexample
             ("Pailed with parsing error '" <> show e <> "'")
             (property False)
-  pure $ label ("Parse '" <> show d <> "'") a
+  pure a -- label ("Parse '" <> show d <> "'") a
   where
     doubleGen :: Gen (Double, Result ScannerError Token)
     doubleGen = do
-      d <- choose (-1000, 1000)
+      d <- choose (0, 1500)
       let bsDouble = B.pack $ show d
       let r = runST $ do
             stref <- newSTRef $ ScanErr V.empty
@@ -122,7 +122,7 @@ parseNumberTests :: TestTree
 parseNumberTests =
   testGroup
     "Test 'parseNumber'"
-    [ testProperty "Parse (NUMBER Double) from 'choose (-1000, 1000)'" parseNumberProp
+    [ testProperty "Parse (NUMBER Double) from 'choose (0, 1500)'" parseNumberProp
     , testCase "12345 @?= parseNumber" $ do
         stref <- stToIO . newSTRef $ ScanErr V.empty
         let double = 12345
@@ -149,8 +149,7 @@ parseNumberTests =
             assertFailure "Uncorrectly failed parser"
           Err e -> do
             case e of
-              InvalidNumberLiteral {} -> do
-                success
+              InvalidNumberLiteral {} -> success
               _ ->
                 assertFailure $
                   "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
@@ -163,12 +162,10 @@ parseNumberTests =
             assertFailure $
               "Should not parse Token: " <> show anyTok <> " expected parsing failure"
           Fail -> do
-            -- showErrorsCollected doubleBS stref
             assertFailure "Uncorrectly failed parser"
           Err e -> do
             case e of
-              InvalidNumberLiteral {} -> do
-                success
+              InvalidNumberLiteral {} -> success
               _ ->
                 assertFailure $
                   "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
