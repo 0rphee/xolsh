@@ -20,6 +20,8 @@ extra-source-files:
 executable xolsh-exe
   main-is: Main.hs
   other-modules:
+      Expr
+      Parser
       Scanner
       Token
       CmdlineOptions
@@ -46,6 +48,8 @@ test-suite xolsh-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Expr
+      Parser
       Scanner
       Token
       Paths_xolsh
