@@ -9,60 +9,60 @@ import GHC.Generics
 
 -- Expression
 data Expr = Expr EqualityExpr
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 -- Equality
 data EqualityExpr
   = EqualityExpr ComparisonExpr (Vector (EqualityOP, ComparisonExpr))
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 data EqualityOP
   = ENOTEQ
   | EEQ
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 -- Comparison
 data ComparisonExpr
   = ComparisonExpr TermExpr (Vector (ComparisonOP, TermExpr))
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 data ComparisonOP
   = CGT -- >
   | CGTEQ -- >=
   | CLT -- <
   | CLTEQ -- <=
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 -- Term
 data TermExpr
   = TermExpr FactorExpr (Vector (TermOP, FactorExpr))
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 data TermOP
   = TMinus
   | TPlus
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 -- Factor
 data FactorExpr
   = FactorExpr UnaryExpr (Vector (FactorOP, UnaryExpr))
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 data FactorOP
   = FDivision
   | FMultiplication
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 -- Unary
 data UnaryExpr
   = UnaryExpr UnaryOP UnaryExpr
   | UPrimaryExpr PrimaryExpr
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 data UnaryOP
   = UNegate
   | UMinus
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)
 
 -- Primary
 data PrimaryExpr
@@ -71,4 +71,4 @@ data PrimaryExpr
   | PBoolConstExpr Bool
   | PNilExpr
   | PGroupedExpr Expr
-  deriving (Show, Generic, NFData)
+  deriving (Show, Eq, Generic, NFData)

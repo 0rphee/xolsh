@@ -6,7 +6,9 @@ import Data.Foldable as F
 import Data.STRef
 import Data.Vector as V
 import Debug.Trace (traceShow, traceShowId)
+import Expr
 import FlatParse.Stateful
+import Parser qualified as P
 import Scanner
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -19,6 +21,7 @@ main = defaultMain tests
 success :: Assertion
 success = pure ()
 
+-- Scanning ByteString
 parseNumberProp :: Property
 parseNumberProp = property $ do
   (d, r) <- doubleGen
@@ -252,6 +255,36 @@ parseKeywAndIdentifTests =
         parseKeyAndIdentifProp
     ]
 
+-- Parsing Tokens
+
+bParsePrimaryExpr :: Vector Token -> [PrimaryExpr]
+bParsePrimaryExpr t = case P.runParser (many P.parsePrimary) t of
+  P.OK !xs _ -> xs
+  _ -> undefined
+
+parseTokensTests :: TestTree
+parseTokensTests =
+  testGroup
+    "Test 'many parsePrimary'"
+    [ testCase "Parse [FALSE, TRUE, NIL, STRING \"aa\", NUMBER 56.0]'" $ do
+        let toks = V.fromList [FALSE, TRUE, NIL, STRING "aa", NUMBER 56.0]
+            correctRes =
+              V.fromList
+                [ PBoolConstExpr False
+                , PBoolConstExpr True
+                , PNilExpr
+                , PStrExpr "aa"
+                , PNumberExpr 56.0
+                ]
+            r = P.runParser (many P.parsePrimary) toks
+        case r of
+          P.OK res _ -> correctRes @?= V.fromList res
+          P.Fail -> do
+            assertFailure "Fail"
+          P.Err (e :: ()) -> do
+            assertFailure $ "Error: " <> show e
+    ]
+
 tests :: TestTree
 tests =
   testGroup
@@ -259,4 +292,5 @@ tests =
     [ parseSimpleTokenTests
     , parseNumberTests
     , parseKeywAndIdentifTests
+    , parseTokensTests
     ]
