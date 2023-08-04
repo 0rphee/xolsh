@@ -1,7 +1,28 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Parser where
+module Parser
+  ( Parser (..)
+  , Result (..)
+  , runParser
+  , parsePrimary
+  , advance
+  , takeNTokens
+  , satisfyP
+  , skip
+  , headP
+  , skipSatisfyP
+  , errP
+  , parseComparison
+  , parseEquality
+  , parseExpression
+  , branchP
+  , parseFactor
+  , parseTerm
+  , parseUnary
+  , failP
+  )
+where
 
 import Control.Applicative
 import Control.Monad (unless)
