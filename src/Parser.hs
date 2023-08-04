@@ -1,7 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Parser () where
+module Parser where
 
 import Control.Applicative
 import Control.Monad (unless)
