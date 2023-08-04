@@ -1,4 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Parser () where
 
@@ -49,6 +50,7 @@ instance Alternative (Parser e) where
   {-# INLINE empty #-}
   {-# INLINE (<|>) #-}
 
+-- | The failing parser.
 failP :: Parser e r
 failP = Control.Applicative.empty
 {-# INLINE failP #-}
@@ -82,6 +84,7 @@ headP = Parser $ \v -> case V.uncons v of
   Nothing -> Fail
 {-# INLINE headP #-}
 
+-- | Reads the next item that satisfies the condition. Fails otherwise.
 satisfyP :: (Token -> Bool) -> Parser e Token
 satisfyP f = do
   ch <- headP
@@ -90,8 +93,111 @@ satisfyP f = do
     else failP
 {-# INLINE satisfyP #-}
 
+-- | Skips the next item that satisfies the condition. Fails otherwise.
 skipSatisfyP :: (Token -> Bool) -> Parser e ()
 skipSatisfyP f = do
   ch <- headP
   unless (f ch) failP
 {-# INLINE skipSatisfyP #-}
+
+-- | Runs the first parser. If it succeds, runs the second, if not, runs the third.
+branchP :: Parser e a -> Parser e b -> Parser e b -> Parser e b
+branchP f g h = Parser \v ->
+  case runParser f v of
+    OK _ rest -> runParser g rest
+    Fail -> runParser h v
+    Err e -> Err e
+{-# INLINE branchP #-}
+
+-- | Throw the error 'e'.
+errP :: e -> Parser e a
+errP e = Parser (const $ Err e)
+{-# INLINE errP #-}
+
+parseExpression :: Parser e Expr
+parseExpression = Expr <$> parseEquality
+
+parseEquality :: Parser e EqualityExpr
+parseEquality = do
+  leftCompExpr <- parseComparison
+  rightExprs <-
+    V.fromList <$> many do
+      tok <- headP
+      operator <- case tok of
+        EQUAL_EQUAL -> pure EEQ
+        BANG_EQUAL -> pure ENOTEQ
+        _ -> failP
+      right <- parseComparison
+      pure (operator, right)
+  pure $ EqualityExpr leftCompExpr rightExprs
+
+parseComparison :: Parser e ComparisonExpr
+parseComparison = do
+  leftTermExpr <- parseTerm
+  rightExprs <-
+    V.fromList <$> many do
+      tok <- headP
+      operator <- case tok of
+        GREATER -> pure CGT
+        GREATER_EQUAL -> pure CGTEQ
+        LESS -> pure CLT
+        LESS_EQUAL -> pure CLTEQ
+        _ -> failP
+      right <- parseTerm
+      pure (operator, right)
+  pure $ ComparisonExpr leftTermExpr rightExprs
+
+parseTerm :: Parser e TermExpr
+parseTerm = do
+  leftFactorExpr <- parseFactor
+  rightExprs <-
+    V.fromList <$> many do
+      tok <- headP
+      operator <- case tok of
+        MINUS -> pure TMinus
+        PLUS -> pure TPlus
+        _ -> failP
+      right <- parseFactor
+      pure (operator, right)
+  pure $ TermExpr leftFactorExpr rightExprs
+
+parseFactor :: Parser e FactorExpr
+parseFactor = do
+  leftFactorExpr <- parseUnary
+  rightExprs <-
+    V.fromList <$> many do
+      tok <- headP
+      operator <- case tok of
+        SLASH -> pure FDivision
+        STAR -> pure FMultiplication
+        _ -> failP
+      right <- parseUnary
+      pure (operator, right)
+  pure $ FactorExpr leftFactorExpr rightExprs
+
+parseUnary :: Parser e UnaryExpr
+parseUnary =
+  let first = do
+        tok <- headP
+        a <- case tok of
+          BANG -> pure UNegate
+          MINUS -> pure UMinus
+          _ -> failP
+        UnaryExpr a <$> parseUnary
+   in first <|> (UPrimaryExpr <$> parsePrimary)
+
+parsePrimary :: Parser e PrimaryExpr
+parsePrimary =
+  headP >>= \case
+    FALSE -> pure $ PBoolConstExpr False
+    TRUE -> pure $ PBoolConstExpr True
+    NIL -> pure PNilExpr
+    STRING bs -> pure $ PStrExpr bs
+    NUMBER num -> pure $ PNumberExpr num
+    LEFT_PAREN -> do
+      expr <- parseExpression
+      branchP
+        (skipSatisfyP (== RIGHT_PAREN))
+        (pure $ PGroupedExpr expr)
+        (errP undefined) -- TODO add error handling
+    _ -> failP
