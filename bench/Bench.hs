@@ -1,4 +1,4 @@
-module Main (main) where
+module Main (main, bParsePrimaryExpr, toks) where
 
 import Control.Applicative
 import Data.Vector as V
@@ -12,7 +12,7 @@ toks = V.fromList [FALSE, TRUE, NIL, STRING "aa", NUMBER 56.0]
 
 bParsePrimaryExpr :: Vector Token -> [PrimaryExpr]
 bParsePrimaryExpr t = case runParser (many parsePrimary) t of
-  OK !xs _ -> xs
+  OK !xs _ _ -> xs
   _ -> undefined
 
 main :: IO ()

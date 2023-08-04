@@ -30,22 +30,22 @@ import Data.Vector as V
 import Expr
 import Token
 
-newtype Parser e r = Parser {runParser :: Vector Token -> Result e r}
+newtype Parser e r = Parser {runParser_ :: Int -> Vector Token -> Result e r}
 
 data Result e a
-  = OK !a !(Vector Token)
+  = OK !a !Int !(Vector Token)
   | Fail
   | Err !e
-  deriving (Functor)
+  deriving (Show, Functor)
 
 instance Functor (Parser e) where
-  fmap f (Parser g) = Parser (fmap f . g)
+  fmap f (Parser g) = Parser \i v -> f <$> g i v
 
 instance Applicative (Parser e) where
   pure x = Parser $ OK x
-  (Parser p) <*> (Parser g) = Parser \v -> do
-    case p v of
-      OK a restV -> a <$> g restV
+  (Parser p) <*> (Parser g) = Parser \i v -> do
+    case p i v of
+      OK a i' restV -> a <$> g i' restV
       Fail -> Fail
       Err e -> Err e
   {-# INLINE pure #-}
@@ -53,35 +53,50 @@ instance Applicative (Parser e) where
 
 instance Monad (Parser e) where
   return = pure
-  (Parser p) >>= g = Parser \v -> do
-    case p v of
-      OK a restV -> runParser (g a) restV
+  (Parser p) >>= g = Parser \i v -> do
+    case p i v of
+      OK a i' restV -> runParser_ (g a) i' restV
       Fail -> Fail
       Err e -> Err e
   {-# INLINE return #-}
   {-# INLINE (>>=) #-}
 
 instance Alternative (Parser e) where
-  empty = Parser $ const Fail
-  (Parser p1) <|> (Parser p2) = Parser $ \input ->
-    case p1 input of
-      OK result rest -> OK result rest
-      Fail -> p2 input
+  empty = Parser $ \_ _ -> Fail
+  (Parser p1) <|> (Parser p2) = Parser $ \i input ->
+    case p1 i input of
+      OK result i' rest -> OK result i' rest
+      Fail -> p2 i input
       x -> x
   {-# INLINE empty #-}
   {-# INLINE (<|>) #-}
+
+runParser :: Parser e r -> Vector Token -> Result e r
+runParser p = runParser_ p 0
 
 -- | The failing parser.
 failP :: Parser e r
 failP = Control.Applicative.empty
 {-# INLINE failP #-}
 
+-- a b c d
+-- 0 1 2 3
+
+-- n = 2
+-- length = 4
+-- pos = 3
+-- newI = pos + 1 =4
+
+-- if 4 - 1 > 2
+-- then OK () 3
+-- else Fail
+
 -- | Skip n# items. Fails if fewer than n# items are available.
 skip :: Int -> Parser e ()
-skip n = Parser \v ->
-  let rest = V.drop n v
-   in if V.length v > n
-        then OK () rest
+skip n = Parser \i v ->
+  let offset = i + n
+   in if (V.length v - i) > n
+        then OK () offset v
         else Fail
 {-# INLINE skip #-}
 
@@ -91,18 +106,19 @@ advance = skip 1
 
 -- | Read n# items. Fails if fewer than n# items are available.
 takeNTokens :: Int -> Parser e (Vector Token)
-takeNTokens n = Parser \v ->
-  let (taken, rest) = V.splitAt n v
-   in if V.length v > n
-        then OK taken rest
+takeNTokens n = Parser \i v ->
+  let offset = i + n
+   in if (V.length v - i) > n
+        then OK (V.slice i offset v) offset v
         else Fail
 {-# INLINE takeNTokens #-}
 
 -- | Read next item. Fails if the vector is empty.
 headP :: Parser e Token
-headP = Parser $ \v -> case V.uncons v of
-  Just (a, rest) -> OK a rest
-  Nothing -> Fail
+headP = Parser $ \i v ->
+  if V.length v > i
+    then OK (v V.! i) (i + 1) v
+    else Fail
 {-# INLINE headP #-}
 
 -- | Reads the next item that satisfies the condition. Fails otherwise.
@@ -123,16 +139,16 @@ skipSatisfyP f = do
 
 -- | Runs the first parser. If it succeds, runs the second, if not, runs the third.
 branchP :: Parser e a -> Parser e b -> Parser e b -> Parser e b
-branchP f g h = Parser \v ->
-  case runParser f v of
-    OK _ rest -> runParser g rest
-    Fail -> runParser h v
+branchP f g h = Parser \i v ->
+  case runParser_ f i v of
+    OK _ i' rest -> runParser_ g i' rest
+    Fail -> runParser_ h i v
     Err e -> Err e
 {-# INLINE branchP #-}
 
 -- | Throw the error 'e'.
 errP :: e -> Parser e a
-errP e = Parser (const $ Err e)
+errP e = Parser (\_ _ -> Err e)
 {-# INLINE errP #-}
 
 parseExpression :: Parser e Expr
