@@ -52,7 +52,7 @@ data FactorOP
 -- Unary
 data UnaryExpr
   = UnaryExpr UnaryOP UnaryExpr
-  | PrimaryExpr
+  | UPrimaryExpr PrimaryExpr
   deriving (Show)
 
 data UnaryOP
