@@ -72,4 +72,18 @@ tests:
     - tasty-quickcheck
     - tasty-hunit
     - QuickCheck
-    
+
+
+benchmarks:
+  xolsh-benchmarks:
+    main:                Bench.hs
+    source-dirs:         
+    - bench
+    ghc-options:
+    - -O2
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - tasty
+    - tasty-bench

@@ -73,3 +73,31 @@ test-suite xolsh-test
     , transformers
     , vector
   default-language: GHC2021
+
+benchmark xolsh-benchmarks
+  type: exitcode-stdio-1.0
+  main-is: Bench.hs
+  other-modules:
+      Expr
+      Parser
+      Scanner
+      Token
+      Paths_xolsh
+  hs-source-dirs:
+      src
+      bench
+  default-extensions:
+      RecordWildCards
+      OverloadedStrings
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -O2 -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , flatparse
+    , mtl
+    , tasty
+    , tasty-bench
+    , template-haskell
+    , transformers
+    , vector
+  default-language: GHC2021
