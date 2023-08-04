@@ -26,6 +26,7 @@ dependencies:
 - vector
 - mtl
 - transformers
+- deepseq
 
 ghc-options:
 - -Wall

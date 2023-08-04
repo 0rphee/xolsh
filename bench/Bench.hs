@@ -1,12 +1,22 @@
-module Main where
+module Main (main) where
 
+import Control.Applicative
+import Data.Vector as V
+import Expr
+import Parser
 import Test.Tasty.Bench
+import Token
 
-myFibo :: Int -> Integer
-myFibo n = if n < 3 then toInteger n else myFibo (n - 1) + myFibo (n - 2)
+toks :: Vector Token
+toks = V.fromList [FALSE, TRUE, NIL, STRING "aa", NUMBER 56.0]
+
+bParsePrimaryExpr :: Vector Token -> [PrimaryExpr]
+bParsePrimaryExpr t = case runParser (many parsePrimary) t of
+  OK !xs _ -> xs
+  _ -> undefined
 
 main :: IO ()
 main =
   defaultMain
-    [ bench "myFibo 20" $ nf myFibo 20
+    [ bench "parsePrimary :: Parser e PrimaryExpr" $ nf bParsePrimaryExpr toks
     ]

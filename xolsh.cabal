@@ -36,6 +36,7 @@ executable xolsh-exe
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , deepseq
     , flatparse
     , mtl
     , optparse-applicative
@@ -64,6 +65,7 @@ test-suite xolsh-test
       QuickCheck
     , base >=4.7 && <5
     , bytestring
+    , deepseq
     , flatparse
     , mtl
     , tasty
@@ -93,6 +95,7 @@ benchmark xolsh-benchmarks
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , deepseq
     , flatparse
     , mtl
     , tasty
