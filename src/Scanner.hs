@@ -34,6 +34,8 @@ data CodeError
 newtype ScanErr = ScanErr (Vector ScannerError)
   deriving (Show)
 
+type ToToken = (Pos, TokPos -> Token)
+
 printErrs :: MonadIO m => ByteString -> Vector ScannerError -> m ()
 printErrs completeBS vec =
   if V.null vec
@@ -81,7 +83,11 @@ scanFile bs = do
 
   (ScanErr errVec) <- readSTRef stRef
   pure $ case res of
-    OK vec _ restOfBs -> Right (errVec, vec, restOfBs)
+    OK vec _ restOfBs ->
+      let (linecolsV, toTokVec) = V.unzip vec
+          lineColsL = posLineCols bs $ V.toList linecolsV
+          r = toTokVec <*> V.fromList lineColsL
+       in Right (errVec, r, restOfBs)
     Err e -> case e of
       UnexpectedCharacter pos ch ->
         let [linecol] = posLineCols bs [pos] -- only one position, the pattern will always be matched
@@ -94,30 +100,36 @@ scanFile bs = do
          in Left $ CInvalidNumberLiteral linecol errBs
     _ -> error "failure should never propagate here"
 
-simpleScanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
+retToTok :: (TokPos -> Token) -> ParserT st r e ToToken
+retToTok x = do
+  posInBS <- getPos
+  pure (posInBS, x)
+
+simpleScanToken
+  :: ParserT (STMode s) (STRef s ScanErr) ScannerError ToToken
 simpleScanToken =
   $( switch
       [|
         case _ of
-          "(" -> pure LEFT_PAREN
-          ")" -> pure RIGHT_PAREN
-          "{" -> pure LEFT_BRACE
-          "}" -> pure RIGHT_BRACE
-          "," -> pure COMMA
-          "." -> pure DOT
-          "-" -> pure MINUS
-          "+" -> pure PLUS
-          ";" -> pure SEMICOLON
-          "*" -> pure STAR
-          "!" -> pure BANG
-          "!=" -> pure BANG_EQUAL
-          "=" -> pure EQUAL
-          "==" -> pure EQUAL_EQUAL
-          "<" -> pure LESS
-          "<=" -> pure LESS_EQUAL
-          ">" -> pure GREATER
-          ">=" -> pure GREATER_EQUAL
-          "/" -> pure SLASH
+          "(" -> retToTok LEFT_PAREN
+          ")" -> retToTok RIGHT_PAREN
+          "{" -> retToTok LEFT_BRACE
+          "}" -> retToTok RIGHT_BRACE
+          "," -> retToTok COMMA
+          "." -> retToTok DOT
+          "-" -> retToTok MINUS
+          "+" -> retToTok PLUS
+          ";" -> retToTok SEMICOLON
+          "*" -> retToTok STAR
+          "!" -> retToTok BANG
+          "!=" -> retToTok BANG_EQUAL
+          "=" -> retToTok EQUAL
+          "==" -> retToTok EQUAL_EQUAL
+          "<" -> retToTok LESS
+          "<=" -> retToTok LESS_EQUAL
+          ">" -> retToTok GREATER
+          ">=" -> retToTok GREATER_EQUAL
+          "/" -> retToTok SLASH
           "\"" -> parseString
         |]
    )
@@ -134,7 +146,7 @@ reportError e = do
   stref <- ask
   liftST $ appendSTRefSCanErrors stref e
 
-scanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
+scanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError ToToken
 scanToken = do
   skipWhiteSpace
   simpleScanToken <|> parseNumber <|> parseKeywAndIdentif <|> do
@@ -143,7 +155,7 @@ scanToken = do
     reportError $ UnexpectedCharacter pos ch
     failed
 
-scanTokens :: ParserT (STMode s) (STRef s ScanErr) ScannerError (Vector Token)
+scanTokens :: ParserST s (STRef s ScanErr) ScannerError (Vector ToToken)
 scanTokens = tryUntilEOF scanToken
 
 withAnyResult
@@ -207,18 +219,20 @@ skipWhiteSpace =
         |]
    )
 
-parseString :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
-parseString = STRING <$> parse
+parseString
+  :: ParserT (STMode s) (STRef s ScanErr) ScannerError ToToken
+parseString = parse
   where
     parse = do
       pos <- lookahead (skipBack 1 >> getPos)
       bs <- byteStringOf $ skipMany (skipSatisfyAscii (/= '"'))
       branch
         advance
-        (pure bs)
+        (retToTok $ STRING bs)
         (err $ UnterminatedString pos)
 
-parseNumber :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
+parseNumber
+  :: ParserT (STMode s) (STRef s ScanErr) ScannerError ToToken
 parseNumber =
   parse
   where
@@ -246,7 +260,7 @@ parseNumber =
                     secondBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
                     let (Just (numAfterDot, _)) = B.readInt secondBs
                         n2 = fromIntegral numAfterDot / (10 ^ B.length secondBs)
-                    pure $ NUMBER (n1 + n2)
+                    retToTok $ NUMBER (n1 + n2)
                   else do
                     skipBack 1
                     invalidRest <-
@@ -256,18 +270,18 @@ parseNumber =
                     finalPos <- getPos
                     err $ InvalidNumberLiteral initialPos finalPos (firstBs <> invalidRest)
         )
-        (pure $ NUMBER n1)
+        (retToTok $ NUMBER n1)
 
 isAlphaNumeric :: Char -> Bool
 isAlphaNumeric c = isLatinLetter c || isDigit c
 
-parseKeywAndIdentif :: ParserT st r e Token
+parseKeywAndIdentif :: ParserT st r e ToToken
 parseKeywAndIdentif =
   let checkNext r =
         branch
           (lookahead (skipSatisfyAscii isAlphaNumeric))
-          (skipMany (skipSatisfyAscii isAlphaNumeric) >> pure IDENTIFIER)
-          (pure r)
+          (skipMany (skipSatisfyAscii isAlphaNumeric) >> retToTok IDENTIFIER)
+          (retToTok r)
    in $( switch
           [|
             case _ of
@@ -290,6 +304,6 @@ parseKeywAndIdentif =
               _ -> do
                 skipSatisfyAscii isLatinLetter
                 skipMany (skipSatisfyAscii isAlphaNumeric)
-                pure IDENTIFIER
+                retToTok IDENTIFIER
             |]
        )
