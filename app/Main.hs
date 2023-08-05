@@ -1,19 +1,13 @@
 module Main (main) where
 
-import CmdlineOptions
+import CmdlineOptions qualified as CmdLine
 import Control.Monad.ST
 import Control.Monad.State.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Function ((&))
 import Data.Vector (Vector)
-import Scanner
-  ( CodeError (..)
-  , ScannerError (..)
-  , ppPrintErr
-  , printErrs
-  , scanFile
-  )
+import Scanner qualified as P
 import System.Exit (ExitCode (..), exitWith)
 import System.IO (stderr)
 import Token
@@ -33,7 +27,7 @@ runAppM (AppM x) = evalStateT x initialState
 
 main :: IO ()
 main = do
-  (Options sourceCodeFilepath) <- execParser options
+  (CmdLine.Options sourceCodeFilepath) <- CmdLine.execParser CmdLine.options
   case sourceCodeFilepath of
     Nothing -> runAppM runPrompt
     Just sourceCodeFile -> runAppM $ runFile sourceCodeFile
@@ -61,19 +55,20 @@ run sourceBS = do
   liftIO $ printRes tokens
   where
     printRes
-      :: Either CodeError (Vector ScannerError, Vector Token, ByteString) -> IO ()
+      :: Either P.CodeError (Vector P.ScannerError, Vector Token, ByteString) -> IO ()
     printRes toks = case toks of
       Right (errVec, v, restOfBS) ->
         let p = B.putStrLn . B.pack . show
          in do
-              printErrs sourceBS errVec
+              P.printErrs sourceBS errVec
               forM_ v p
       -- B.putStrLn ("Rest of BS: " <> restOfBS) NOTE: it's been a long time since i've seen a non-empty bytestring out of the scan function
-      Left e -> ppPrintErr e
+      Left e -> P.ppPrintErr e
 
 scan
-  :: ByteString -> Either CodeError (Vector ScannerError, Vector Token, ByteString)
-scan b = runST $ scanFile b
+  :: ByteString
+  -> Either P.CodeError (Vector P.ScannerError, Vector Token, ByteString)
+scan b = runST $ P.scanFile b
 
 reportError :: (MonadIO m, MonadState AppState m) => Int -> ByteString -> m ()
 reportError lineNum message = do
