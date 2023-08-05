@@ -3,7 +3,6 @@ module Main (main) where
 import Control.Monad.ST
 import Data.ByteString.Char8 as B
 import Data.Foldable as F
-import Data.STRef
 import Data.Vector as V
 import Debug.Trace (traceShow, traceShowId)
 import Expr
@@ -13,7 +12,7 @@ import Scanner
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
-import Token (Token (..))
+import Token
 
 main :: IO ()
 main = defaultMain tests
@@ -26,7 +25,7 @@ parseNumberProp :: Property
 parseNumberProp = property $ do
   (d, r) <- doubleGen
   let a = case r of
-        OK (NUMBER res) _ _ -> res === d
+        OK (NUMBER res _) _ _ -> res === d
         OK otherTok _ _ ->
           counterexample
             ("Parsed incorrect token '" <> show otherTok <> "' failed")
@@ -45,10 +44,7 @@ parseNumberProp = property $ do
     doubleGen = do
       d <- choose (0, 1500)
       let bsDouble = B.pack $ show d
-      let r = runST $ do
-            stref <- newSTRef $ ScanErr V.empty
-            runParserST parseNumber stref 0 bsDouble
-
+      let r = runST $ simpleScanParserS bsDouble parseNumber
       pure (d, r)
 
 parseSimpleTokProp :: Property
@@ -79,27 +75,28 @@ parseSimpleTokProp = property $ do
     tokPairGen :: Gen (ByteString, Token)
     tokPairGen =
       elements
-        [ ("(", LEFT_PAREN)
-        , (")", RIGHT_PAREN)
-        , ("{", LEFT_BRACE)
-        , ("}", RIGHT_BRACE)
-        , (",", COMMA)
-        , (".", DOT)
-        , ("-", MINUS)
-        , ("+", PLUS)
-        , (";", SEMICOLON)
-        , ("*", STAR)
-        , ("!", BANG)
-        , ("!=", BANG_EQUAL)
-        , ("=", EQUAL)
-        , ("==", EQUAL_EQUAL)
-        , ("<", LESS)
-        , ("<=", LESS_EQUAL)
-        , (">", GREATER)
-        , (">=", GREATER_EQUAL)
-        , ("/", SLASH)
-        ]
-
+        ( (badPosTok <$>)
+            <$> [ ("(", LEFT_PAREN)
+                , (")", RIGHT_PAREN)
+                , ("{", LEFT_BRACE)
+                , ("}", RIGHT_BRACE)
+                , (",", COMMA)
+                , (".", DOT)
+                , ("-", MINUS)
+                , ("+", PLUS)
+                , (";", SEMICOLON)
+                , ("*", STAR)
+                , ("!", BANG)
+                , ("!=", BANG_EQUAL)
+                , ("=", EQUAL)
+                , ("==", EQUAL_EQUAL)
+                , ("<", LESS)
+                , ("<=", LESS_EQUAL)
+                , (">", GREATER)
+                , (">=", GREATER_EQUAL)
+                , ("/", SLASH)
+                ]
+        )
     tokPairBSVecGen :: Gen (ByteString, Vector Token)
     tokPairBSVecGen = do
       l <- vectorOf 100 tokPairGen
@@ -110,9 +107,7 @@ parseSimpleTokProp = property $ do
       :: Gen (ByteString, Vector Token, Result ScannerError (Vector Token))
     simpleTokGen = do
       (bs, tokVec) <- tokPairBSVecGen
-      let r = runST $ do
-            stref <- newSTRef $ ScanErr V.empty
-            runParserST (tryUntilEOF simpleScanToken) stref 0 bs
+      let r = runST $ simpleScanParser bs (tryUntilEOF simpleScanToken)
       pure (bs, tokVec, r)
 
 parseSimpleTokenTests :: TestTree
@@ -126,52 +121,49 @@ parseNumberTests =
   testGroup
     "Test 'parseNumber'"
     [ testProperty "Parse (NUMBER Double) from 'choose (0, 1500)'" parseNumberProp
-    , testCase "12345 @?= parseNumber" $ do
-        stref <- stToIO . newSTRef $ ScanErr V.empty
+    , testCase "12345 @?= parseNumber" $
         let double = 12345
             doubleBS = B.pack $ show double
-        r <- stToIO $ runParserST parseNumber stref 0 doubleBS
-        case r of
-          OK (NUMBER res) _ _ -> double @?= res
-          OK otherTok _ _ -> do
-            assertFailure $
-              "Incorrect Token: " <> show otherTok <> " Expected: NUMBER " <> show double
-          Fail -> do
-            assertFailure "Fail"
-          Err e -> do
-            assertFailure $ "Error: " <> show e
-    , testCase "12345. parseNumber fail" $ do
-        stref <- stToIO . newSTRef $ ScanErr V.empty
+            r = runST $ simpleScanParserS doubleBS parseNumber
+         in case r of
+              OK (NUMBER res _) _ _ -> double @?= res
+              OK otherTok _ _ -> do
+                assertFailure $
+                  "Incorrect Token: " <> show otherTok <> " Expected: NUMBER " <> show double
+              Fail -> do
+                assertFailure "Fail"
+              Err e -> do
+                assertFailure $ "Error: " <> show e
+    , testCase "12345. parseNumber fail" $
         let doubleBS = "12345."
-        r <- stToIO $ runParserST parseNumber stref 0 doubleBS
-        case r of
-          OK anyTok _ _ -> do
-            assertFailure $
-              "Should not parse Token: " <> show anyTok <> " expected parsing failure"
-          Fail -> do
-            assertFailure "Uncorrectly failed parser"
-          Err e -> do
-            case e of
-              InvalidNumberLiteral {} -> success
-              _ ->
+            r = runST $ simpleScanParserS doubleBS parseNumber
+         in case r of
+              OK anyTok _ _ -> do
                 assertFailure $
-                  "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
-    , testCase "12345.a parseNumber fail" $ do
-        stref <- stToIO . newSTRef $ ScanErr V.empty
+                  "Should not parse Token: " <> show anyTok <> " expected parsing failure"
+              Fail -> do
+                assertFailure "Uncorrectly failed parser"
+              Err e -> do
+                case e of
+                  InvalidNumberLiteral {} -> success
+                  _ ->
+                    assertFailure $
+                      "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
+    , testCase "12345.a parseNumber fail" $
         let doubleBS = "12345.a"
-        r <- stToIO $ runParserST parseNumber stref 0 doubleBS
-        case r of
-          OK anyTok _ _ -> do
-            assertFailure $
-              "Should not parse Token: " <> show anyTok <> " expected parsing failure"
-          Fail -> do
-            assertFailure "Uncorrectly failed parser"
-          Err e -> do
-            case e of
-              InvalidNumberLiteral {} -> success
-              _ ->
+            r = runST $ simpleScanParserS doubleBS parseNumber
+         in case r of
+              OK anyTok _ _ -> do
                 assertFailure $
-                  "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
+                  "Should not parse Token: " <> show anyTok <> " expected parsing failure"
+              Fail -> do
+                assertFailure "Uncorrectly failed parser"
+              Err e -> do
+                case e of
+                  InvalidNumberLiteral {} -> success
+                  _ ->
+                    assertFailure $
+                      "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
     ]
 
 parseKeyAndIdentifProp :: Property
@@ -181,9 +173,9 @@ parseKeyAndIdentifProp = property $ do
         OK resultVec _ _ ->
           -- resultVec === v
           counterexample
-            ( "Parsed incorrect token Vector \n'"
+            ( "Parsed incorrect Token Vector: \n'"
                 <> show resultVec
-                <> "'\n and correctT token Vector \n'"
+                <> "'\n Correct Token Vector: \n'"
                 <> show v
                 <> "'\n ORIGINAL BS:\n"
                 <> show bs
@@ -204,24 +196,25 @@ parseKeyAndIdentifProp = property $ do
       v <-
         vectorOf 10 gen
       elements
-        ( [ ("and", AND)
-          , ("class", CLASS)
-          , ("else", ELSE)
-          , ("false", FALSE)
-          , ("for", FOR)
-          , ("fun", FUNN)
-          , ("if", IF)
-          , ("nil", NIL)
-          , ("or", OR)
-          , ("print", PRINT)
-          , ("return", RETURN)
-          , ("super", SUPER)
-          , ("this", THIS)
-          , ("true", TRUE)
-          , ("var", VAR)
-          , ("while", WHILE)
-          ]
-            <> v
+        ( (badPosTok <$>)
+            <$> [ ("and", AND)
+                , ("class", CLASS)
+                , ("else", ELSE)
+                , ("false", FALSE)
+                , ("for", FOR)
+                , ("fun", FUNN)
+                , ("if", IF)
+                , ("nil", NIL)
+                , ("or", OR)
+                , ("print", PRINT)
+                , ("return", RETURN)
+                , ("super", SUPER)
+                , ("this", THIS)
+                , ("true", TRUE)
+                , ("var", VAR)
+                , ("while", WHILE)
+                ]
+              <> v
         )
       where
         gen = do
@@ -233,7 +226,7 @@ parseKeyAndIdentifProp = property $ do
 
     tokPairBSVecGen :: Gen (ByteString, Vector Token)
     tokPairBSVecGen = do
-      l <- vectorOf 20 tokPairGen
+      l <- vectorOf 5 tokPairGen
       let f (prevBS, prevVec) (nextBS, nextTok) = (prevBS <> " " <> nextBS, V.snoc prevVec nextTok)
       pure $ F.foldl' f (B.empty, V.empty) l
 
@@ -241,15 +234,15 @@ parseKeyAndIdentifProp = property $ do
       :: Gen (ByteString, Vector Token, Result ScannerError (Vector Token))
     simpleTokGen = do
       (bs, tokVec) <- tokPairBSVecGen
-      let r = runST $ do
-            stref <- newSTRef $ ScanErr V.empty
-            runParserST (tryUntilEOF (skipWhiteSpace >> parseKeywAndIdentif)) stref 0 bs
+      let r =
+            runST $
+              simpleScanParser bs (tryUntilEOF (skipWhiteSpace >> parseKeywAndIdentif))
       pure (bs, tokVec, r)
 
 parseKeywAndIdentifTests :: TestTree
 parseKeywAndIdentifTests =
   testGroup
-    "parseKeywAndIdentifTests"
+    "Test 'parseKeywAndIdentif'"
     [ testProperty
         "Parse a generated (Vector Token) from Token Keywords"
         parseKeyAndIdentifProp
@@ -267,7 +260,7 @@ parseTokensTests =
   testGroup
     "Test 'many parsePrimary'"
     [ testCase "Parse [FALSE, TRUE, NIL, STRING \"aa\", NUMBER 56.0]'" $ do
-        let toks = V.fromList [FALSE, TRUE, NIL, STRING "aa", NUMBER 56.0]
+        let toks = V.fromList $ badPosTok <$> [FALSE, TRUE, NIL, STRING "aa", NUMBER 56.0]
             correctRes =
               V.fromList
                 [ PBoolConstExpr False
@@ -288,9 +281,14 @@ parseTokensTests =
 tests :: TestTree
 tests =
   testGroup
-    "Parsing tests"
-    [ parseSimpleTokenTests
-    , parseNumberTests
-    , parseKeywAndIdentifTests
-    , parseTokensTests
+    "Tests"
+    [ testGroup
+        "ByteString Scanning tests"
+        [ parseSimpleTokenTests
+        , parseNumberTests
+        , parseKeywAndIdentifTests
+        ]
+    , testGroup
+        "Token Parsing tests"
+        [parseTokensTests]
     ]

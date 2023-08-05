@@ -36,7 +36,7 @@ data Result e a
   = OK !a !(Vector Token)
   | Fail
   | Err !e
-  deriving (Functor)
+  deriving (Show, Functor)
 
 instance Functor (Parser e) where
   fmap f (Parser g) = Parser (fmap f . g)
@@ -145,8 +145,8 @@ parseEquality = do
     V.fromList <$> many do
       tok <- headP
       operator <- case tok of
-        EQUAL_EQUAL -> pure EEQ
-        BANG_EQUAL -> pure ENOTEQ
+        EQUAL_EQUAL _ -> pure EEQ
+        BANG_EQUAL _ -> pure ENOTEQ
         _ -> failP
       right <- parseComparison
       pure (operator, right)
@@ -159,10 +159,10 @@ parseComparison = do
     V.fromList <$> many do
       tok <- headP
       operator <- case tok of
-        GREATER -> pure CGT
-        GREATER_EQUAL -> pure CGTEQ
-        LESS -> pure CLT
-        LESS_EQUAL -> pure CLTEQ
+        GREATER _ -> pure CGT
+        GREATER_EQUAL _ -> pure CGTEQ
+        LESS _ -> pure CLT
+        LESS_EQUAL _ -> pure CLTEQ
         _ -> failP
       right <- parseTerm
       pure (operator, right)
@@ -175,8 +175,8 @@ parseTerm = do
     V.fromList <$> many do
       tok <- headP
       operator <- case tok of
-        MINUS -> pure TMinus
-        PLUS -> pure TPlus
+        MINUS _ -> pure TMinus
+        PLUS _ -> pure TPlus
         _ -> failP
       right <- parseFactor
       pure (operator, right)
@@ -189,8 +189,8 @@ parseFactor = do
     V.fromList <$> many do
       tok <- headP
       operator <- case tok of
-        SLASH -> pure FDivision
-        STAR -> pure FMultiplication
+        SLASH _ -> pure FDivision
+        STAR _ -> pure FMultiplication
         _ -> failP
       right <- parseUnary
       pure (operator, right)
@@ -201,8 +201,8 @@ parseUnary =
   let first = do
         tok <- headP
         a <- case tok of
-          BANG -> pure UNegate
-          MINUS -> pure UMinus
+          BANG _ -> pure UNegate
+          MINUS _ -> pure UMinus
           _ -> failP
         UnaryExpr a <$> parseUnary
    in first <|> (UPrimaryExpr <$> parsePrimary)
@@ -210,15 +210,15 @@ parseUnary =
 parsePrimary :: Parser e PrimaryExpr
 parsePrimary =
   headP >>= \case
-    FALSE -> pure $ PBoolConstExpr False
-    TRUE -> pure $ PBoolConstExpr True
-    NIL -> pure PNilExpr
-    STRING bs -> pure $ PStrExpr bs
-    NUMBER num -> pure $ PNumberExpr num
-    LEFT_PAREN -> do
+    FALSE _ -> pure $ PBoolConstExpr False
+    TRUE _ -> pure $ PBoolConstExpr True
+    NIL _ -> pure PNilExpr
+    STRING bs _ -> pure $ PStrExpr bs
+    NUMBER num _ -> pure $ PNumberExpr num
+    LEFT_PAREN _ -> do
       expr <- parseExpression
       branchP
-        (skipSatisfyP (== RIGHT_PAREN))
+        (skipSatisfyP (== RIGHT_PAREN (0, 0)))
         (pure $ PGroupedExpr expr)
         (errP undefined) -- TODO add error handling
     _ -> failP

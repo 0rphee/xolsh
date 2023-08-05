@@ -1,8 +1,9 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE UnliftedNewtypes #-}
 
-module Token (Token (..), TokPos) where
+module Token (Token (..), TokPos, badPosTok) where
 
 import Data.ByteString.Char8 as B
 
@@ -57,7 +58,57 @@ data Token
   | VAR TokPos
   | WHILE TokPos
   | EOF TokPos
-  deriving (Show, Eq)
+  deriving (Show)
+
+instance Eq Token where
+  (==) = myEq
+
+myEq :: Token -> Token -> Bool
+myEq l r = case (l, r) of
+  (LEFT_PAREN _, LEFT_PAREN _) -> True
+  (RIGHT_PAREN _, RIGHT_PAREN _) -> True
+  (LEFT_BRACE _, LEFT_BRACE _) -> True
+  (RIGHT_BRACE _, RIGHT_BRACE _) -> True
+  (COMMA _, COMMA _) -> True
+  (DOT _, DOT _) -> True
+  (MINUS _, MINUS _) -> True
+  (PLUS _, PLUS _) -> True
+  (SEMICOLON _, SEMICOLON _) -> True
+  (SLASH _, SLASH _) -> True
+  (STAR _, STAR _) -> True
+  (BANG _, BANG _) -> True
+  (BANG_EQUAL _, BANG_EQUAL _) -> True
+  (EQUAL _, EQUAL _) -> True
+  (EQUAL_EQUAL _, EQUAL_EQUAL _) -> True
+  (GREATER_EQUAL _, GREATER_EQUAL _) -> True
+  (GREATER _, GREATER _) -> True
+  (LESS _, LESS _) -> True
+  (LESS_EQUAL _, LESS_EQUAL _) -> True
+  (IDENTIFIER _, IDENTIFIER _) -> True
+  (STRING _ s1, STRING _ s2) -> s1 == s2
+  (NUMBER _ n1, NUMBER _ n2) -> n1 == n2
+  (AND _, AND _) -> True
+  (CLASS _, CLASS _) -> True
+  (ELSE _, ELSE _) -> True
+  (FALSE _, FALSE _) -> True
+  (FUNN _, FUNN _) -> True
+  (FOR _, FOR _) -> True
+  (IF _, IF _) -> True
+  (NIL _, NIL _) -> True
+  (OR _, OR _) -> True
+  (PRINT _, PRINT _) -> True
+  (RETURN _, RETURN _) -> True
+  (SUPER _, SUPER _) -> True
+  (THIS _, THIS _) -> True
+  (TRUE _, TRUE _) -> True
+  (VAR _, VAR _) -> True
+  (WHILE _, WHILE _) -> True
+  (EOF _, EOF _) -> True
+  _ -> False
+
+badPosTok :: (TokPos -> Token) -> Token
+badPosTok con = con (0, 0)
+{-# INLINE badPosTok #-}
 
 -- data Token = Token
 --   { tokType :: !TokenType

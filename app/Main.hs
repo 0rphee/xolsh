@@ -68,7 +68,7 @@ run sourceBS = do
          in do
               printErrs sourceBS errVec
               forM_ v p
-              B.putStrLn ("Rest of BS: " <> restOfBS)
+      -- B.putStrLn ("Rest of BS: " <> restOfBS) NOTE: it's been a long time since i've seen a non-empty bytestring out of the scan function
       Left e -> ppPrintErr e
 
 scan

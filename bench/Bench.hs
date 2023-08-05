@@ -8,7 +8,10 @@ import Test.Tasty.Bench
 import Token
 
 toks :: Vector Token
-toks = V.fromList [FALSE, TRUE, NIL, STRING "aa", NUMBER 56.0]
+toks =
+  V.fromList $
+    badPosTok
+      <$> [FALSE, TRUE, NIL, STRING "aa", NUMBER 56.0]
 
 bParsePrimaryExpr :: Vector Token -> [PrimaryExpr]
 bParsePrimaryExpr t = case runParser (many parsePrimary) t of

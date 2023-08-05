@@ -73,6 +73,34 @@ ppPrintErr e = liftIO $ B.putStrLn (lineColStr <> restStr)
         <> (col & show & B.pack)
         <> "] Error: "
 
+simpleScanParser
+  :: ByteString
+  -> ParserT (STMode s) (STRef s ScanErr) e (Vector ToToken)
+  -> ST s (Result e (Vector Token))
+simpleScanParser bs p = do
+  stref <- newSTRef $ ScanErr V.empty
+  res <- runParserST p stref 0 bs
+  (ScanErr errVec) <- readSTRef stref
+  pure $ annotateTokenVector bs <$> res
+
+simpleScanParserS
+  :: ByteString
+  -> ParserT (STMode s) (STRef s ScanErr) e ToToken
+  -> ST s (Result e Token)
+simpleScanParserS bs p = do
+  stref <- newSTRef $ ScanErr V.empty
+  res <- runParserST p stref 0 bs
+  (ScanErr errVec) <- readSTRef stref
+  pure $ V.head . annotateTokenVector bs . V.singleton <$> res
+
+annotateTokenVector :: ByteString -> Vector ToToken -> Vector Token
+annotateTokenVector bs vec =
+  let (linecolsV, toTokVec) = V.unzip vec
+      lineColsL =
+        posLineCols bs $
+          V.toList linecolsV
+   in V.zipWith id toTokVec (V.fromList lineColsL)
+
 scanFile
   :: ByteString
   -> ST s (Either CodeError (Vector ScannerError, Vector Token, ByteString))
@@ -84,10 +112,7 @@ scanFile bs = do
   (ScanErr errVec) <- readSTRef stRef
   pure $ case res of
     OK vec _ restOfBs ->
-      let (linecolsV, toTokVec) = V.unzip vec
-          lineColsL = posLineCols bs $ V.toList linecolsV
-          r = toTokVec <*> V.fromList lineColsL
-       in Right (errVec, r, restOfBs)
+      Right (errVec, annotateTokenVector bs vec, restOfBs)
     Err e -> case e of
       UnexpectedCharacter pos ch ->
         let [linecol] = posLineCols bs [pos] -- only one position, the pattern will always be matched
