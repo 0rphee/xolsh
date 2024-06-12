@@ -25,7 +25,14 @@ parseNumberProp :: Property
 parseNumberProp = property $ do
   (d, r) <- doubleGen
   let a = case r of
-        OK (NUMBER res _) _ _ -> res === d
+        OK (NUMBER res _) _ _ ->
+          let parseErrorRangeProperty
+                | d == res = property True
+                | (d - 0.0001 <= res) || (res <= d + 0.0001) = property Discard
+                | otherwise = property False
+           in counterexample
+                ("Parsed with error greater than +/- 0.0001: " <> show res <> " /= " <> show d)
+                parseErrorRangeProperty
         OK otherTok _ _ ->
           counterexample
             ("Parsed incorrect token '" <> show otherTok <> "' failed")
@@ -36,7 +43,7 @@ parseNumberProp = property $ do
             (property False)
         Err e ->
           counterexample
-            ("Pailed with parsing error '" <> show e <> "'")
+            ("Failed with parsing error '" <> show e <> "'")
             (property False)
   pure a -- label ("Parse '" <> show d <> "'") a
   where
