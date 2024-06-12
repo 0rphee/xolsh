@@ -4,31 +4,45 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Scanner where -- (CodeError (..), ScannerError (..), printErrs, scanFile, ppPrintErr)
+module Scanner
+  ( CodeError (..)
+  , ScannerError (..)
+  , printErrs
+  , scanFile
+  , ppPrintErr
+  , skipWhiteSpace
+  , parseKeywAndIdentif
+  , simpleScanParser
+  , simpleScanParserS
+  , tryUntilEOF
+  , parseNumber
+  , simpleScanToken
+  )
+where
 
 import Control.Monad.ST
 import Control.Monad.Writer.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Function ((&))
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.STRef
 import Data.Vector (Vector)
 import Data.Vector qualified as V
-import Debug.Trace (trace, traceShow, traceShowId)
 import FlatParse.Common.Parser (STMode)
 import FlatParse.Stateful
 import Token
 
 data ScannerError
-  = UnexpectedCharacter Pos Char
-  | UnterminatedString Pos
-  | InvalidNumberLiteral Pos Pos ByteString
+  = UnexpectedCharacter !Pos !Char
+  | UnterminatedString !Pos
+  | InvalidNumberLiteral !Pos !Pos !ByteString
   deriving (Show)
 
 data CodeError
-  = CUnexpectedCharacter Char (Int, Int)
-  | CUnterminatedString (Int, Int)
-  | CInvalidNumberLiteral (Int, Int) ByteString
+  = CUnexpectedCharacter !Char !(Int, Int)
+  | CUnterminatedString !(Int, Int)
+  | CInvalidNumberLiteral !(Int, Int) !ByteString
   deriving (Show)
 
 newtype ScanErr = ScanErr (Vector ScannerError)
@@ -80,7 +94,7 @@ simpleScanParser
 simpleScanParser bs p = do
   stref <- newSTRef $ ScanErr V.empty
   res <- runParserST p stref 0 bs
-  (ScanErr errVec) <- readSTRef stref
+  (ScanErr _errVec) <- readSTRef stref
   pure $ annotateTokenVector bs <$> res
 
 simpleScanParserS
@@ -90,7 +104,7 @@ simpleScanParserS
 simpleScanParserS bs p = do
   stref <- newSTRef $ ScanErr V.empty
   res <- runParserST p stref 0 bs
-  (ScanErr errVec) <- readSTRef stref
+  (ScanErr _errVec) <- readSTRef stref
   pure $ V.head . annotateTokenVector bs . V.singleton <$> res
 
 annotateTokenVector :: ByteString -> Vector ToToken -> Vector Token
@@ -114,16 +128,22 @@ scanFile bs = do
     OK vec _ restOfBs ->
       Right (errVec, annotateTokenVector bs vec, restOfBs)
     Err e -> case e of
+      -- only one position, the pattern will always be matched
       UnexpectedCharacter pos ch ->
-        let [linecol] = posLineCols bs [pos] -- only one position, the pattern will always be matched
-         in Left $ CUnexpectedCharacter ch linecol
+        Left $ CUnexpectedCharacter ch (errorGetLineCol pos)
       UnterminatedString pos ->
-        let [linecol] = posLineCols bs [pos]
-         in Left $ CUnterminatedString linecol
+        Left $ CUnterminatedString (errorGetLineCol pos)
       InvalidNumberLiteral pos _ errBs ->
-        let [linecol] = posLineCols bs [pos]
-         in Left $ CInvalidNumberLiteral linecol errBs
-    _ -> error "failure should never propagate here"
+        Left $ CInvalidNumberLiteral (errorGetLineCol pos) errBs
+    _ -> error "Failure should never propagate here"
+  where
+    errorGetLineCol :: Pos -> (Int, Int)
+    errorGetLineCol pos =
+      fromMaybe
+        ( error "Reached the impossible, position not found in original input bytestring"
+        )
+        . listToMaybe
+        $ posLineCols bs [pos]
 
 retToTok :: (TokPos -> Token) -> ParserT st r e ToToken
 retToTok x = do
@@ -283,7 +303,10 @@ parseNumber =
                 if isDigit ch
                   then do
                     secondBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
-                    let (Just (numAfterDot, _)) = B.readInt secondBs
+                    let (numAfterDot, _restOfBs) =
+                          fromMaybe
+                            (error "Reached the impossible: number parsing should be guaranteed")
+                            (B.readInt secondBs)
                         n2 = fromIntegral numAfterDot / (10 ^ B.length secondBs)
                     retToTok $ NUMBER (n1 + n2)
                   else do

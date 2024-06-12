@@ -4,7 +4,6 @@ import Control.Monad.ST
 import Data.ByteString.Char8 as B
 import Data.Foldable as F
 import Data.Vector as V
-import Debug.Trace (traceShow, traceShowId)
 import Expr
 import FlatParse.Stateful
 import Parser qualified as P
@@ -258,11 +257,6 @@ parseKeywAndIdentifTests =
     ]
 
 -- Parsing Tokens
-
-bParsePrimaryExpr :: Vector Token -> [PrimaryExpr]
-bParsePrimaryExpr t = case P.runParser (many P.parsePrimary) t of
-  P.OK !xs _ -> xs
-  _ -> undefined
 
 parseTokensTests :: TestTree
 parseTokensTests =

@@ -16,7 +16,7 @@ toks =
 bParsePrimaryExpr :: Vector Token -> [PrimaryExpr]
 bParsePrimaryExpr t = case P.runParser (many P.parsePrimary) t of
   P.OK !xs _ -> xs
-  _ -> undefined
+  _ -> error "ooops"
 
 main :: IO ()
 main =

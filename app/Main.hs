@@ -6,11 +6,9 @@ import Control.Monad.ST
 import Control.Monad.State.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
-import Data.Function ((&))
 import Data.Vector (Vector)
-import Scanner qualified as P
+import Scanner qualified as S
 import System.Exit (ExitCode (..), exitWith)
-import System.IO (stderr)
 import Token
 
 newtype AppState
@@ -52,28 +50,16 @@ runPrompt = forever $ do
 
 run :: MonadIO m => ByteString -> m ()
 run sourceBS = do
-  let tokens = scan sourceBS
+  let tokens = runST $ S.scanFile sourceBS
   liftIO $ printRes tokens
   where
     printRes
-      :: Either P.CodeError (Vector P.ScannerError, Vector Token, ByteString) -> IO ()
+      :: Either S.CodeError (Vector S.ScannerError, Vector Token, ByteString) -> IO ()
     printRes toks = case toks of
-      Right (errVec, v, restOfBS) ->
+      Right (errVec, v, _restOfBS) ->
         let p = B.putStrLn . B.pack . show
          in do
-              P.printErrs sourceBS errVec
+              S.printErrs sourceBS errVec
               forM_ v p
       -- B.putStrLn ("Rest of BS: " <> restOfBS) NOTE: it's been a long time since i've seen a non-empty bytestring out of the scan function
-      Left e -> P.ppPrintErr e
-
-scan
-  :: ByteString
-  -> Either P.CodeError (Vector P.ScannerError, Vector Token, ByteString)
-scan b = runST $ P.scanFile b
-
-reportError :: (MonadIO m, MonadState AppState m) => Int -> ByteString -> m ()
-reportError lineNum message = do
-  liftIO $
-    B.hPutStrLn stderr $
-      "[line " <> (lineNum & show & B.pack) <> "] Error: " <> message
-  put (StateErr True)
+      Left e -> S.ppPrintErr e
