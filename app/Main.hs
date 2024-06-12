@@ -1,6 +1,7 @@
 module Main (main) where
 
 import CmdlineOptions qualified as CmdLine
+import Control.Monad (forM_, forever, when)
 import Control.Monad.ST
 import Control.Monad.State.Strict
 import Data.ByteString.Char8 (ByteString)

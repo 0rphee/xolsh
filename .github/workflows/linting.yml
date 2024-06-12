@@ -1,0 +1,41 @@
+name: Linting
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+jobs:
+  fourmolu:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: haskell-actions/run-fourmolu@v10
+      with:
+        pattern: |
+          src
+          app
+          test
+          bench
+
+  hlint:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # Needed to upload results to GitHub code scanning.
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: 'Set up HLint'
+      uses: haskell-actions/hlint-setup@v2
+      with:
+        version: '3.8'
+
+    - name: 'Run HLint Scan'
+      uses: haskell-actions/hlint-scan@v1
+
+    - name: 'Run HLint'
+      uses: haskell-actions/hlint-run@v2
+      with:
+        path: '["app"]'
+        fail-on: warning

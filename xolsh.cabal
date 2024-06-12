@@ -1,106 +1,120 @@
-cabal-version: 1.12
-
--- This file has been generated from package.yaml by hpack version 0.35.2.
---
--- see: https://github.com/sol/hpack
-
-name:           xolsh
-version:        0.1.0.0
-description:    Please see the README on Codeberg at <https://codeberg.org/0rphee/xolsh#xolsh>
-author:         0rphee
-maintainer:     0rph3e@proton.me
-copyright:      2023 0rphee
-license:        BSD3
-license-file:   LICENSE
-build-type:     Simple
+cabal-version: 3.4
+name: xolsh
+version: 0.1.0.0
+description: Please see the README on Codeberg at <https://codeberg.org/0rphee/xolsh#xolsh>
+author: 0rphee
+maintainer: 0rph3e@proton.me
+copyright: 2023 0rphee
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
 extra-source-files:
-    README.md
-    CHANGELOG.md
+  CHANGELOG.md
+  README.md
+
+tested-with: ghc ==9.4.8 || ==9.6.5 || ==9.8.2 || ==9.10.1
+
+common common-deps
+  build-depends:
+    base >=4.7 && <5,
+    bytestring,
+    deepseq,
+    vector,
+
+common common-options
+  default-language: GHC2021
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Wredundant-constraints
+    -fhide-source-paths
+    -Wno-unused-do-bind
+    -fshow-hole-constraints
+    -fprint-potential-instances
+    -Wno-unticked-promoted-constructors
+    -flate-specialise
+    -funbox-strict-fields
+    -fexpose-all-unfoldings
+    -threaded
+    -with-rtsopts=-N
+    -Wunused-packages
+
+  default-extensions:
+    OverloadedStrings
+
+  other-modules:
+    Expr
+    Parser
+    Scanner
+    Token
 
 executable xolsh-exe
+  import:
+    , common-deps
+    , common-options
+
+  hs-source-dirs:
+    src
+    app
+
   main-is: Main.hs
   other-modules:
-      Expr
-      Parser
-      Scanner
-      Token
-      CmdlineOptions
-      Paths_xolsh
-  hs-source-dirs:
-      src
-      app
+    CmdlineOptions
+    Paths_xolsh
+
   default-extensions:
-      RecordWildCards
-      OverloadedStrings
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+    RecordWildCards
+
   build-depends:
-      base >=4.7 && <5
-    , bytestring
-    , deepseq
-    , flatparse
-    , mtl
-    , optparse-applicative
-    , template-haskell
-    , transformers
-    , vector
+    flatparse,
+    mtl,
+    optparse-applicative,
+    template-haskell,
+    transformers,
+
   default-language: GHC2021
 
 test-suite xolsh-test
+  import:
+    , common-deps
+    , common-options
+
   type: exitcode-stdio-1.0
+  hs-source-dirs:
+    src
+    test
+
   main-is: Spec.hs
   other-modules:
-      Expr
-      Parser
-      Scanner
-      Token
-      Paths_xolsh
-  hs-source-dirs:
-      src
-      test
-  default-extensions:
-      RecordWildCards
-      OverloadedStrings
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+    Paths_xolsh
+
   build-depends:
-      QuickCheck
-    , base >=4.7 && <5
-    , bytestring
-    , deepseq
-    , flatparse
-    , mtl
-    , tasty
-    , tasty-hunit
-    , tasty-quickcheck
-    , template-haskell
-    , transformers
-    , vector
-  default-language: GHC2021
+    flatparse,
+    mtl,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
 
 benchmark xolsh-benchmarks
+  import:
+    , common-deps
+    , common-options
+
   type: exitcode-stdio-1.0
+  hs-source-dirs:
+    src
+    bench
+
   main-is: Bench.hs
   other-modules:
-      Expr
-      Parser
-      Scanner
-      Token
-      Paths_xolsh
-  hs-source-dirs:
-      src
-      bench
-  default-extensions:
-      RecordWildCards
-      OverloadedStrings
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -O2 -threaded -rtsopts -with-rtsopts=-N
+    Paths_xolsh
+
+  ghc-options: -O2
   build-depends:
-      base >=4.7 && <5
-    , bytestring
-    , deepseq
-    , flatparse
-    , mtl
-    , tasty
-    , tasty-bench
-    , template-haskell
-    , transformers
-    , vector
-  default-language: GHC2021
+    flatparse,
+    mtl,
+    tasty-bench,

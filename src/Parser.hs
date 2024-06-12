@@ -4,7 +4,6 @@
 module Parser
   ( Parser (..)
   , Result (..)
-  , runParser
   , parsePrimary
   , advance
   , takeNTokens
