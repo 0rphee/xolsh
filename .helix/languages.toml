@@ -1,0 +1,10 @@
+[language-server.haskell-language-server.config.haskell]
+"formattingProvider" = "fourmolu"
+
+[[language]]
+name = "haskell"
+auto-format = true
+
+[[language]]
+name = "cabal"
+auto-format = true
