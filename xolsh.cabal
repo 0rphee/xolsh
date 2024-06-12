@@ -17,8 +17,6 @@ tested-with: ghc ==9.4.8 || ==9.6.5 || ==9.8.2 || ==9.10.1
 common common-deps
   build-depends:
     base >=4.7 && <5,
-    bytestring,
-    deepseq,
     vector,
 
 common common-options
@@ -46,11 +44,25 @@ common common-options
   default-extensions:
     OverloadedStrings
 
-  other-modules:
+library
+  import:
+    , common-deps
+    , common-options
+
+  hs-source-dirs:
+    src
+
+  exposed-modules:
     Expr
     Parser
     Scanner
     Token
+
+  build-depends:
+    bytestring,
+    deepseq,
+    flatparse,
+    mtl,
 
 executable xolsh-exe
   import:
@@ -58,7 +70,6 @@ executable xolsh-exe
     , common-options
 
   hs-source-dirs:
-    src
     app
 
   main-is: Main.hs
@@ -70,13 +81,10 @@ executable xolsh-exe
     RecordWildCards
 
   build-depends:
-    flatparse,
+    bytestring,
     mtl,
     optparse-applicative,
-    template-haskell,
-    transformers,
-
-  default-language: GHC2021
+    xolsh,
 
 test-suite xolsh-test
   import:
@@ -85,7 +93,6 @@ test-suite xolsh-test
 
   type: exitcode-stdio-1.0
   hs-source-dirs:
-    src
     test
 
   main-is: Spec.hs
@@ -93,11 +100,12 @@ test-suite xolsh-test
     Paths_xolsh
 
   build-depends:
+    bytestring,
     flatparse,
-    mtl,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
+    xolsh,
 
 benchmark xolsh-benchmarks
   import:
@@ -106,7 +114,6 @@ benchmark xolsh-benchmarks
 
   type: exitcode-stdio-1.0
   hs-source-dirs:
-    src
     bench
 
   main-is: Bench.hs
@@ -115,6 +122,5 @@ benchmark xolsh-benchmarks
 
   ghc-options: -O2
   build-depends:
-    flatparse,
-    mtl,
     tasty-bench,
+    xolsh,
