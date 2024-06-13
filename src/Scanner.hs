@@ -1,6 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Scanner
@@ -12,10 +13,14 @@ module Scanner
   , skipWhiteSpace
   , parseKeywAndIdentif
   , simpleScanParser
-  , simpleScanParserS
+  , simpleScanParserSingle
   , tryUntilEOF
   , parseNumber
   , simpleScanToken
+  , while
+  , godScan
+  , simpleScanParserU
+  , testGod
   )
 where
 
@@ -23,6 +28,8 @@ import Control.Monad.ST
 import Control.Monad.Writer.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
+import Data.Char (isLetter)
+import Data.Foldable (traverse_)
 import Data.Function ((&))
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.STRef
@@ -31,6 +38,7 @@ import Data.Vector qualified as V
 import FlatParse.Common.Parser (STMode)
 import FlatParse.Stateful
 import Token
+import VectorBuilder.Alternative qualified as VBA
 
 data ScannerError
   = UnexpectedCharacter !Pos !Char
@@ -46,8 +54,6 @@ data CodeError
 
 newtype ScanErr = ScanErr (Vector ScannerError)
   deriving (Show)
-
-type ToToken = (Pos, TokPos -> Token)
 
 printErrs :: MonadIO m => ByteString -> Vector ScannerError -> m ()
 printErrs completeBS vec =
@@ -86,33 +92,35 @@ ppPrintErr e = liftIO $ B.putStrLn (lineColStr <> restStr)
         <> (col & show & B.pack)
         <> "] Error: "
 
+simpleScanParserU
+  :: ByteString
+  -> ParserT (STMode s) (STRef s ScanErr) e v
+  -> ST s (Result e v)
+simpleScanParserU bs p = do
+  stref <- newSTRef $ ScanErr V.empty
+  res <- runParserST p stref 0 bs
+  (ScanErr _errVec) <- readSTRef stref
+  pure res
+
 simpleScanParser
   :: ByteString
-  -> ParserT (STMode s) (STRef s ScanErr) e (Vector ToToken)
+  -> ParserT (STMode s) (STRef s ScanErr) e (Vector Token)
   -> ST s (Result e (Vector Token))
 simpleScanParser bs p = do
   stref <- newSTRef $ ScanErr V.empty
   res <- runParserST p stref 0 bs
   (ScanErr _errVec) <- readSTRef stref
-  pure $ annotateTokenVector bs <$> res
+  pure res
 
-simpleScanParserS
+simpleScanParserSingle
   :: ByteString
-  -> ParserT (STMode s) (STRef s ScanErr) e ToToken
+  -> ParserT (STMode s) (STRef s ScanErr) e Token
   -> ST s (Result e Token)
-simpleScanParserS bs p = do
+simpleScanParserSingle bs p = do
   stref <- newSTRef $ ScanErr V.empty
   res <- runParserST p stref 0 bs
   (ScanErr _errVec) <- readSTRef stref
-  pure $ V.head . annotateTokenVector bs . V.singleton <$> res
-
-annotateTokenVector :: ByteString -> Vector ToToken -> Vector Token
-annotateTokenVector bs vec =
-  let (linecolsV, toTokVec) = V.unzip vec
-      lineColsL =
-        posLineCols bs $
-          V.toList linecolsV
-   in V.zipWith id toTokVec (V.fromList lineColsL)
+  pure res
 
 scanFile
   :: ByteString
@@ -125,7 +133,7 @@ scanFile bs = do
   (ScanErr errVec) <- readSTRef stRef
   pure $ case res of
     OK vec _ restOfBs ->
-      Right (errVec, annotateTokenVector bs vec, restOfBs)
+      Right (errVec, vec, restOfBs)
     Err e -> case e of
       -- only one position, the pattern will always be matched
       UnexpectedCharacter pos ch ->
@@ -144,53 +152,49 @@ scanFile bs = do
         . listToMaybe
         $ posLineCols bs [pos]
 
-retToTok :: (TokPos -> Token) -> ParserT st r e ToToken
-retToTok x = do
-  posInBS <- getPos
-  pure (posInBS, x)
-
 simpleScanToken
-  :: ParserT (STMode s) (STRef s ScanErr) ScannerError ToToken
-simpleScanToken =
-  $( switch
-      [|
-        case _ of
-          "(" -> retToTok LEFT_PAREN
-          ")" -> retToTok RIGHT_PAREN
-          "{" -> retToTok LEFT_BRACE
-          "}" -> retToTok RIGHT_BRACE
-          "," -> retToTok COMMA
-          "." -> retToTok DOT
-          "-" -> retToTok MINUS
-          "+" -> retToTok PLUS
-          ";" -> retToTok SEMICOLON
-          "*" -> retToTok STAR
-          "!" -> retToTok BANG
-          "!=" -> retToTok BANG_EQUAL
-          "=" -> retToTok EQUAL
-          "==" -> retToTok EQUAL_EQUAL
-          "<" -> retToTok LESS
-          "<=" -> retToTok LESS_EQUAL
-          ">" -> retToTok GREATER
-          ">=" -> retToTok GREATER_EQUAL
-          "/" -> retToTok SLASH
-          "\"" -> parseString
-        |]
-   )
+  :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
+simpleScanToken = do
+  let toTok v = Token v <$> getPos
+   in $( switch
+          [|
+            case _ of
+              "(" -> toTok LEFT_PAREN
+              ")" -> toTok RIGHT_PAREN
+              "{" -> toTok LEFT_BRACE
+              "}" -> toTok RIGHT_BRACE
+              "," -> toTok COMMA
+              "." -> toTok DOT
+              "-" -> toTok MINUS
+              "+" -> toTok PLUS
+              ";" -> toTok SEMICOLON
+              "*" -> toTok STAR
+              "!" -> toTok BANG
+              "!=" -> toTok BANG_EQUAL
+              "=" -> toTok EQUAL
+              "==" -> toTok EQUAL_EQUAL
+              "<" -> toTok LESS
+              "<=" -> toTok LESS_EQUAL
+              ">" -> toTok GREATER
+              ">=" -> toTok GREATER_EQUAL
+              "/" -> toTok SLASH
+              "\"" -> parseString
+            |]
+       )
 
 -- {-# INLINE simpleScanToken #-}
-
-appendSTRefSCanErrors :: STRef s ScanErr -> ScannerError -> ST s ()
-appendSTRefSCanErrors stref er = modifySTRef' stref (apndScanningErrors er)
-  where
-    apndScanningErrors codeError (ScanErr v) = ScanErr $ V.snoc v codeError
 
 reportError :: ScannerError -> ParserT (STMode s) (STRef s ScanErr) e ()
 reportError e = do
   stref <- ask
   liftST $ appendSTRefSCanErrors stref e
+  where
+    appendSTRefSCanErrors :: STRef s ScanErr -> ScannerError -> ST s ()
+    appendSTRefSCanErrors stref er = modifySTRef' stref (apndScanningErrors er)
+      where
+        apndScanningErrors codeError (ScanErr v) = ScanErr $ V.snoc v codeError
 
-scanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError ToToken
+scanToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 scanToken = do
   skipWhiteSpace
   simpleScanToken <|> parseNumber <|> parseKeywAndIdentif <|> do
@@ -199,7 +203,7 @@ scanToken = do
     reportError $ UnexpectedCharacter pos ch
     failed
 
-scanTokens :: ParserST s (STRef s ScanErr) ScannerError (Vector ToToken)
+scanTokens :: ParserST s (STRef s ScanErr) ScannerError (Vector Token)
 scanTokens = tryUntilEOF scanToken
 
 withAnyResult
@@ -215,6 +219,15 @@ withAnyResult (ParserT initial) whenSuccess (ParserT whenFailure) whenError =
       Fail# st' -> whenFailure fp r eob s n st'
       Err# st' e -> runParserT# (whenError e) fp r eob s n st'
 {-# INLINE withAnyResult #-}
+
+while
+  :: Monoid b
+  => ParserT st r e a
+  -- ^  While this parser succceds
+  -> ParserT st r e b
+  -- ^ Run this parser
+  -> ParserT st r e b
+while condition continue = branch condition (while condition continue) (pure mempty)
 
 tryUntilEOF
   :: ParserST s (STRef s ScanErr) ScannerError a
@@ -236,20 +249,6 @@ tryUntilEOF p = go
         )
 {-# INLINE tryUntilEOF #-}
 
-skipLineComment :: ParserT st r e ()
-skipLineComment =
-  branch eof (pure ()) $
-    withOption
-      anyWord8
-      ( \case
-          10 -> skipWhiteSpace -- '\n'
-          _ -> skipLineComment
-      )
-      (pure ())
-
-advance :: ParserT st r e ()
-advance = skip 1
-
 skipWhiteSpace :: ParserT st r e ()
 skipWhiteSpace =
   $( switch
@@ -262,28 +261,39 @@ skipWhiteSpace =
           _ -> branch $(string "//") skipLineComment (pure ())
         |]
    )
+  where
+    skipLineComment :: ParserT st r e ()
+    skipLineComment =
+      branch eof (pure ()) $
+        withOption
+          anyWord8
+          ( \case
+              10 -> skipWhiteSpace -- '\n'
+              _ -> skipLineComment
+          )
+          (pure ())
 
 parseString
-  :: ParserT (STMode s) (STRef s ScanErr) ScannerError ToToken
+  :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 parseString = parse
   where
     parse = do
       pos <- lookahead (skipBack 1 >> getPos)
-      bs <- byteStringOf $ skipMany (skipSatisfyAscii (/= '"'))
+      bs <- byteStringOf $ skipMany (skipSatisfy (/= '"'))
       branch
-        advance
-        (retToTok $ STRING bs)
+        (skip 1)
+        (pure $ Token (STRING bs) pos)
         (err $ UnterminatedString pos)
 
 parseNumber
-  :: ParserT (STMode s) (STRef s ScanErr) ScannerError ToToken
+  :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
 parseNumber =
   parse
   where
     parse = do
       initialPos <- getPos
 
-      firstBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
+      firstBs <- byteStringOf $ skipMany (skipSatisfy isDigit)
 
       nBeforeDot <- case B.readInt firstBs of
         Just (numBeforeDot, _) -> pure numBeforeDot
@@ -292,7 +302,7 @@ parseNumber =
 
       let n1 = fromIntegral nBeforeDot
       branch
-        (skipSatisfyAscii (== '.'))
+        (skipSatisfy (== '.'))
         ( do
             dotPos <- getPos
             cmaybe <- optional (lookahead anyChar)
@@ -301,35 +311,45 @@ parseNumber =
               Just ch ->
                 if isDigit ch
                   then do
-                    secondBs <- byteStringOf $ skipMany (skipSatisfyAscii isDigit)
+                    secondBs <- byteStringOf $ skipMany (skipSatisfy isDigit)
                     let (numAfterDot, _restOfBs) =
                           fromMaybe
                             (error "Reached the impossible: number parsing should be guaranteed")
                             (B.readInt secondBs)
                         n2 = fromIntegral numAfterDot / (10 ^ B.length secondBs)
-                    retToTok $ NUMBER (n1 + n2)
+                    pure $ Token (NUMBER (n1 + n2)) initialPos
                   else do
                     skipBack 1
                     invalidRest <-
                       byteStringOf $
                         skipMany
-                          (skipSatisfyAscii (\c -> c /= ' ' || c /= '\n' || c /= '\t' || c /= '\n'))
+                          (skipSatisfy (\c -> c /= ' ' || c /= '\n' || c /= '\t' || c /= '\n'))
                     finalPos <- getPos
                     err $ InvalidNumberLiteral initialPos finalPos (firstBs <> invalidRest)
         )
-        (retToTok $ NUMBER n1)
+        (pure $ Token (NUMBER n1) initialPos)
 
-isAlphaNumeric :: Char -> Bool
-isAlphaNumeric c = isLatinLetter c || isDigit c
+skipSatisfyAlphaNumeric :: ParserT st r e ()
+skipSatisfyAlphaNumeric =
+  skipFusedSatisfy
+    (\c -> isLatinLetter c || isDigit c)
+    isLetter
+    isLetter
+    isLetter
 
-parseKeywAndIdentif :: ParserT st r e ToToken
-parseKeywAndIdentif =
-  let checkNext r =
-        branch
-          (lookahead (skipSatisfyAscii isAlphaNumeric))
-          (skipMany (skipSatisfyAscii isAlphaNumeric) >> retToTok IDENTIFIER)
-          (retToTok r)
-   in $( switch
+parseKeywAndIdentif :: ParserT st r e Token
+parseKeywAndIdentif = do
+  initialPos <- getPos
+  toktype <- getTokType
+  pure $ Token toktype initialPos
+  where
+    checkNext other =
+      branch
+        (lookahead skipSatisfyAlphaNumeric)
+        (skipMany skipSatisfyAlphaNumeric >> pure (IDENTIFIER ""))
+        $ pure other
+    getTokType =
+      $( switch
           [|
             case _ of
               "and" -> checkNext AND
@@ -349,8 +369,137 @@ parseKeywAndIdentif =
               "var" -> checkNext VAR
               "while" -> checkNext WHILE
               _ -> do
-                skipSatisfyAscii isLatinLetter
-                skipMany (skipSatisfyAscii isAlphaNumeric)
-                retToTok IDENTIFIER
+                skipSatisfy isLatinLetter
+                skipMany skipSatisfyAlphaNumeric
+                pure (IDENTIFIER "")
             |]
        )
+
+-------------------------------------------------------------------------------------
+
+godScan :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
+godScan = do
+  initialPos <- getPos
+  toktype <- getTokType initialPos
+  skipWhiteSpace
+  pure $ Token toktype initialPos
+  where
+    scanNumber :: Pos -> ParserT (STMode s) (STRef s ScanErr) ScannerError TokenType
+    scanNumber initialPos =
+      parse
+      where
+        parse = do
+          firstBs <- byteStringOf $ skipSome (skipSatisfy isDigit)
+
+          let nBeforeDot =
+                fst $
+                  fromMaybe
+                    (error "Reached the impossible: number parsing should be guaranteed")
+                    (B.readInt firstBs)
+          let n1 = fromIntegral nBeforeDot
+
+          branch
+            (skipSatisfy (== '.'))
+            -- if there __IS__ a fractional part, we return the sum of both
+            ( do
+                dotPos <- getPos
+                cmaybe <- optional (lookahead anyChar)
+                case cmaybe of
+                  Nothing -> err $ InvalidNumberLiteral initialPos dotPos (B.snoc firstBs '.')
+                  Just ch ->
+                    if isDigit ch
+                      then do
+                        secondBs <- byteStringOf $ skipSome (skipSatisfy isDigit)
+                        let numAfterDot =
+                              fst $
+                                fromMaybe
+                                  (error "Reached the impossible: number parsing should be guaranteed")
+                                  (B.readInt secondBs)
+                            n2 = fromIntegral numAfterDot / (10 ^ B.length secondBs)
+                        pure $ NUMBER (n1 + n2)
+                      else do
+                        skipBack 1
+                        invalidRest <-
+                          byteStringOf $
+                            skipMany
+                              (skipSatisfy (\c -> c /= ' ' || c /= '\n' || c /= '\t' || c /= '\n'))
+                        finalPos <- getPos
+                        err $ InvalidNumberLiteral initialPos finalPos (firstBs <> invalidRest)
+            )
+            -- if there __IS NOT__ a fractional part, we return the integral part
+            (pure $ NUMBER n1)
+
+    scanString :: Pos -> ParserT (STMode s) (STRef s ScanErr) ScannerError TokenType
+    scanString initPos = do
+      bs <- byteStringOf $ skipMany (skipSatisfy (/= '"'))
+      branch
+        (skip 1) -- skip the (") character
+        (pure (STRING bs))
+        (err $ UnterminatedString initPos)
+
+    scanIdentifier :: ParserT st r e TokenType
+    scanIdentifier =
+      IDENTIFIER
+        <$> byteStringOf (skipSatisfy isLatinLetter >> skipMany skipSatisfyAlphaNumeric)
+    checkNextMultipleCharToken :: TokenType -> ParserT st r e TokenType
+    checkNextMultipleCharToken other =
+      ( IDENTIFIER <$> byteStringOf (skipSome skipSatisfyAlphaNumeric)
+      )
+        <|> pure other
+    getTokType initPos =
+      $( switch
+          [|
+            case _ of
+              "(" -> pure LEFT_PAREN
+              ")" -> pure RIGHT_PAREN
+              "{" -> pure LEFT_BRACE
+              "}" -> pure RIGHT_BRACE
+              "," -> pure COMMA
+              "." -> pure DOT
+              "-" -> pure MINUS
+              "+" -> pure PLUS
+              ";" -> pure SEMICOLON
+              "*" -> pure STAR
+              "!" -> pure BANG
+              -- operators
+
+              "!=" -> pure BANG_EQUAL
+              "=" -> pure EQUAL
+              "==" -> pure EQUAL_EQUAL
+              "<" -> pure LESS
+              "<=" -> pure LESS_EQUAL
+              ">" -> pure GREATER
+              ">=" -> pure GREATER_EQUAL
+              "/" -> pure SLASH
+              "\"" -> scanString initPos
+              -- longer lexemes (keywords)
+
+              "and" -> checkNextMultipleCharToken AND
+              "class" -> checkNextMultipleCharToken CLASS
+              "else" -> checkNextMultipleCharToken ELSE
+              "false" -> checkNextMultipleCharToken FALSE
+              "for" -> checkNextMultipleCharToken FOR
+              "fun" -> checkNextMultipleCharToken FUNN
+              "if" -> checkNextMultipleCharToken IF
+              "nil" -> checkNextMultipleCharToken NIL
+              "or" -> checkNextMultipleCharToken OR
+              "print" -> checkNextMultipleCharToken PRINT
+              "return" -> checkNextMultipleCharToken RETURN
+              "super" -> checkNextMultipleCharToken SUPER
+              "this" -> checkNextMultipleCharToken THIS
+              "true" -> checkNextMultipleCharToken TRUE
+              "var" -> checkNextMultipleCharToken VAR
+              "while" -> checkNextMultipleCharToken WHILE
+              _ -> do
+                scanIdentifier <|> scanNumber initPos
+            |]
+       )
+
+testGod :: ByteString -> IO ()
+testGod txt =
+  case runST $ simpleScanParserU txt $ VBA.many godScan of
+    OK (res :: Vector Token) _ bs -> do
+      traverse_ print res
+      putStrLn $ "Rest of BS: '" <> B.unpack bs <> "'"
+    Err e -> putStrLn $ "Error: --" <> show e <> "--"
+    Fail -> putStrLn "Unhandled failure'"

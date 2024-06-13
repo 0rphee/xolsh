@@ -3,6 +3,7 @@ module Main (main) where
 import Control.Applicative
 import Data.Vector as V
 import Expr
+import FlatParse.Stateful (Pos (..))
 import Parser qualified as P
 import Test.Tasty.Bench
 import Token
@@ -10,8 +11,7 @@ import Token
 toks :: Vector Token
 toks =
   V.fromList $
-    badPosTok
-      <$> [FALSE, TRUE, NIL, STRING "aa", NUMBER 56.0]
+    (\ty -> Token ty $ Pos 0) <$> [FALSE, TRUE, NIL, STRING "aa", NUMBER 56.0]
 
 bParsePrimaryExpr :: Vector Token -> [PrimaryExpr]
 bParsePrimaryExpr t = case P.runParser (many P.parsePrimary) t of

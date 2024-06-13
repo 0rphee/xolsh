@@ -114,9 +114,9 @@ satisfyP f = do
 
 -- | Skips the next item that satisfies the condition. Fails otherwise.
 skipSatisfyP :: (Token -> Bool) -> Parser e ()
-skipSatisfyP f = do
+skipSatisfyP condition = do
   ch <- headP
-  unless (f ch) failP
+  unless (condition ch) failP
 {-# INLINE skipSatisfyP #-}
 
 -- | Runs the first parser. If it succeds, runs the second, if not, runs the third.
@@ -142,9 +142,9 @@ parseEquality = do
   rightExprs <-
     V.fromList <$> many do
       tok <- headP
-      operator <- case tok of
-        EQUAL_EQUAL _ -> pure EEQ
-        BANG_EQUAL _ -> pure ENOTEQ
+      operator <- case tok.tokType of
+        EQUAL_EQUAL -> pure EEQ
+        BANG_EQUAL -> pure ENOTEQ
         _ -> failP
       right <- parseComparison
       pure (operator, right)
@@ -156,11 +156,11 @@ parseComparison = do
   rightExprs <-
     V.fromList <$> many do
       tok <- headP
-      operator <- case tok of
-        GREATER _ -> pure CGT
-        GREATER_EQUAL _ -> pure CGTEQ
-        LESS _ -> pure CLT
-        LESS_EQUAL _ -> pure CLTEQ
+      operator <- case tok.tokType of
+        GREATER -> pure CGT
+        GREATER_EQUAL -> pure CGTEQ
+        LESS -> pure CLT
+        LESS_EQUAL -> pure CLTEQ
         _ -> failP
       right <- parseTerm
       pure (operator, right)
@@ -172,9 +172,9 @@ parseTerm = do
   rightExprs <-
     V.fromList <$> many do
       tok <- headP
-      operator <- case tok of
-        MINUS _ -> pure TMinus
-        PLUS _ -> pure TPlus
+      operator <- case tok.tokType of
+        MINUS -> pure TMinus
+        PLUS -> pure TPlus
         _ -> failP
       right <- parseFactor
       pure (operator, right)
@@ -186,9 +186,9 @@ parseFactor = do
   rightExprs <-
     V.fromList <$> many do
       tok <- headP
-      operator <- case tok of
-        SLASH _ -> pure FDivision
-        STAR _ -> pure FMultiplication
+      operator <- case tok.tokType of
+        SLASH -> pure FDivision
+        STAR -> pure FMultiplication
         _ -> failP
       right <- parseUnary
       pure (operator, right)
@@ -198,25 +198,26 @@ parseUnary :: Parser e UnaryExpr
 parseUnary =
   let first = do
         tok <- headP
-        a <- case tok of
-          BANG _ -> pure UNegate
-          MINUS _ -> pure UMinus
+        a <- case tok.tokType of
+          BANG -> pure UNegate
+          MINUS -> pure UMinus
           _ -> failP
         UnaryExpr a <$> parseUnary
    in first <|> (UPrimaryExpr <$> parsePrimary)
 
 parsePrimary :: Parser e PrimaryExpr
-parsePrimary =
-  headP >>= \case
-    FALSE _ -> pure $ PBoolConstExpr False
-    TRUE _ -> pure $ PBoolConstExpr True
-    NIL _ -> pure PNilExpr
-    STRING bs _ -> pure $ PStrExpr bs
-    NUMBER num _ -> pure $ PNumberExpr num
-    LEFT_PAREN _ -> do
+parsePrimary = do
+  tok <- headP
+  case tok.tokType of
+    FALSE -> pure $ PBoolConstExpr False
+    TRUE -> pure $ PBoolConstExpr True
+    NIL -> pure PNilExpr
+    STRING bs -> pure $ PStrExpr bs
+    NUMBER num -> pure $ PNumberExpr num
+    LEFT_PAREN -> do
       expr <- parseExpression
       branchP
-        (skipSatisfyP (== RIGHT_PAREN (0, 0)))
+        (skipSatisfyP (\tk -> tk.tokType == RIGHT_PAREN))
         (pure $ PGroupedExpr expr)
         (errP undefined) -- TODO add error handling
     _ -> failP
