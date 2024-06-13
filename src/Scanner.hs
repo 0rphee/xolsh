@@ -2,7 +2,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE UnboxedTuples #-}
 
 module Scanner
   ( CodeError (..)

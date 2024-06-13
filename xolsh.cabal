@@ -18,6 +18,7 @@ common common-deps
   build-depends:
     base >=4.7 && <5,
     vector,
+    flatparse,
 
 common common-options
   default-language: GHC2021
@@ -43,6 +44,8 @@ common common-options
 
   default-extensions:
     OverloadedStrings
+    OverloadedRecordDot
+    LambdaCase
 
 library
   import:
@@ -61,7 +64,6 @@ library
   build-depends:
     bytestring,
     deepseq,
-    flatparse,
     mtl,
 
 executable xolsh-exe
@@ -101,7 +103,6 @@ test-suite xolsh-test
 
   build-depends:
     bytestring,
-    flatparse,
     tasty,
     tasty-hunit,
     tasty-quickcheck,

@@ -1,8 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
-{-# LANGUAGE UnliftedNewtypes #-}
-
 module Token (Token (..), TokPos, badPosTok) where
 
 import Data.ByteString.Char8 as B
