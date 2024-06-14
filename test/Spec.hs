@@ -23,7 +23,7 @@ success = pure ()
 parseNumberProp :: Property
 parseNumberProp = property $ do
   (d, r) <- doubleGen
-  pure $ case tokType <$> r of
+  pure $ case r of
     OK (NUMBER res) _ _ ->
       let parseErrorRangeProperty
             | d == res = property True
@@ -45,11 +45,11 @@ parseNumberProp = property $ do
         ("Failed with parsing error '" <> show e <> "'")
         (property False)
   where
-    doubleGen :: Gen (Double, Result S.ScannerError Token)
+    doubleGen :: Gen (Double, Result S.ScannerError TokenType)
     doubleGen = do
       d <- choose (0, 1500)
       let bsDouble = B.pack $ show d
-      let r = runST $ S.simpleScanParserSingle bsDouble S.parseNumber
+      let (_ve, r) = runST $ S.simpleScanParser bsDouble (S.scanNumber $ Pos 0)
       pure (d, r)
 
 parseSimpleTokProp :: Property
@@ -110,10 +110,9 @@ parseSimpleTokProp = property $ do
       :: Gen (ByteString, Vector TokenType, Result S.ScannerError (Vector TokenType))
     simpleTokGen = do
       (bs, tokVec) <- tokPairBSVecGen
-      let r =
-            fmap (fmap tokType) $
-              runST $
-                S.simpleScanParser bs (S.tryUntilEOF S.simpleScanToken)
+      let (_ve, r) =
+            runST $
+              S.simpleScanParser bs (S.untilEnd $ S.scanOperatorOrSimple (Pos 0))
       pure (bs, tokVec, r)
 
 parseSimpleTokenTests :: TestTree
@@ -130,8 +129,8 @@ parseNumberTests =
     , testCase "12345 @?= parseNumber" $
         let double = 12345
             doubleBS = B.pack $ show double
-            r = runST $ S.simpleScanParserSingle doubleBS S.parseNumber
-         in case tokType <$> r of
+            (_ve, r) = runST $ S.simpleScanParser doubleBS (S.scanNumber $ Pos 0)
+         in case r of
               OK (NUMBER res) _ _ -> double @?= res
               OK otherTok _ _ -> do
                 assertFailure $
@@ -142,7 +141,7 @@ parseNumberTests =
                 assertFailure $ "Error: " <> show e
     , testCase "12345. parseNumber fail" $
         let doubleBS = "12345."
-            r = runST $ S.simpleScanParserSingle doubleBS S.parseNumber
+            (_ve, r) = runST $ S.simpleScanParser doubleBS (S.scanNumber $ Pos 0)
          in case r of
               OK anyTok _ _ -> do
                 assertFailure $
@@ -157,7 +156,7 @@ parseNumberTests =
                       "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
     , testCase "12345.a parseNumber fail" $
         let doubleBS = "12345.a"
-            r = runST $ S.simpleScanParserSingle doubleBS S.parseNumber
+            (_ve, r) = runST $ S.simpleScanParser doubleBS (S.scanNumber $ Pos 0)
          in case r of
               OK anyTok _ _ -> do
                 assertFailure $
@@ -241,12 +240,9 @@ parseKeyAndIdentifProp = property $ do
       :: Gen (ByteString, Vector TokenType, Result S.ScannerError (Vector TokenType))
     simpleTokGen = do
       (bs, tokVec) <- tokPairBSVecGen
-      let r =
-            fmap (fmap tokType) $
-              runST $
-                S.simpleScanParser
-                  bs
-                  (S.tryUntilEOF (S.skipWhiteSpace >> S.parseKeywAndIdentif))
+      let (_ve, r) =
+            runST $
+              S.simpleScanParser bs (S.untilEnd $ S.scanKeywordAndIdentifier (Pos 0))
       pure (bs, tokVec, r)
 
 parseKeywAndIdentifTests :: TestTree

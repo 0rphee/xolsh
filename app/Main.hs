@@ -2,7 +2,6 @@ module Main (main) where
 
 import CmdlineOptions qualified as CmdLine
 import Control.Monad (forM_, forever, when)
-import Control.Monad.ST
 import Control.Monad.State.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
@@ -12,7 +11,8 @@ import System.Exit (ExitCode (..), exitWith)
 import Token
 
 newtype AppState
-  = StateErr Bool
+  = -- | Whether there are errors or not.
+    StateErr Bool
 
 -- Define a monad stack using MTL
 newtype AppM a
@@ -50,7 +50,7 @@ runPrompt = forever $ do
 
 run :: MonadIO m => ByteString -> m ()
 run sourceBS = do
-  let tokens = runST $ S.scanFile sourceBS
+  let tokens = S.runScanFile sourceBS
   liftIO $ printRes tokens
   where
     printRes

@@ -52,7 +52,5 @@ data TokenType
 data Token = Token
   { tokType :: !TokenType
   , tokPos :: Pos
-  -- , -- , tokLiteral :: a
-  -- tokLine :: !Int
   }
   deriving (Show)
