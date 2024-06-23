@@ -7,3 +7,11 @@ source-repository-package
     type: git
     location: https://github.com/Mesabloo/diagnose.git
     tag: d3ffbb7f376ddc64f3f349fe3a6a8e49d405cde0
+
+-- see https://github.com/duo-lang/duo-lang/pull/491
+-- and https://github.com/Mesabloo/diagnose/pull/13
+if os(windows)
+    source-repository-package
+        type: git
+        location: https://github.com/solidsnack/wcwidth.git
+        tag: 747297319f0dd0c8e8f72b7de4fbf52aad73d5b0

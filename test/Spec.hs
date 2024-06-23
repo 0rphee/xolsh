@@ -175,8 +175,8 @@ scanNumberTests =
                   _ ->
                     assertFailure $
                       "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"
-    , testCase ".12345 scanNumber fail" $
-        let doubleBS = ".12345"
+    , testCase "'.12345 while ' scanNumber fail" $
+        let doubleBS = ".12345 while "
             (_ve, r) = runST $ S.simpleScanParser doubleBS S.scanSingleToken
          in case r of
               OK anyTok _ _ -> do
@@ -186,7 +186,16 @@ scanNumberTests =
                 assertFailure "Uncorrectly failed parser, should throw error"
               Err e -> do
                 case e of
-                  S.InvalidNumberLiteral {} -> success
+                  S.InvalidNumberLiteral (begin, end) ->
+                    case posLineCols doubleBS [begin, end] of
+                      [b', e'] ->
+                        assertBool
+                          "The end InvalidNumberLiteral range is not correct"
+                          (b' == (0, 0) && e' == (0, 6))
+                      other ->
+                        assertFailure $
+                          "Unexpected Error, InvalidNumberLiteral returned incorrect ranges: "
+                            <> show other
                   _ ->
                     assertFailure $
                       "Unexpected Error: '" <> show e <> "' expected InvalidNumberLiteral error"

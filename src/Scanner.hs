@@ -205,9 +205,8 @@ scanNumber initialPos =
                         n2 = fromIntegral numAfterDot / (10 ^ B.length secondBs)
                     pure $ NUMBER (n1 + n2)
                   else do
-                    skipBack 1
                     skipMany
-                      (skipSatisfy (\c -> c /= ' ' || c /= '\n' || c /= '\t' || c /= '\n'))
+                      (skipSatisfy (\c -> c /= ' ' && c /= '\n' && c /= '\t' && c /= '\n'))
                     finalPos <- getPos
                     err $
                       InvalidNumberLiteral (initialPos, finalPos)
@@ -274,9 +273,10 @@ scanKeywordAndIdentifier
   :: Pos
   -> ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) TokenType
 scanKeywordAndIdentifier initPos =
-  let checkNextMultipleCharToken :: TokenType -> ParserT st r e TokenType
-      checkNextMultipleCharToken other =
-        ( IDENTIFIER <$> byteStringOf (skipSome skipSatisfyAlphaNumeric)
+  let checkNextMultipleCharToken
+        :: TokenType -> B.ByteString -> ParserT st r e TokenType
+      checkNextMultipleCharToken other additional =
+        ( IDENTIFIER . (additional <>) <$> byteStringOf (skipSome skipSatisfyAlphaNumeric)
         )
           <|> pure other
       scanIdentifier :: ParserT st r e TokenType
@@ -286,22 +286,22 @@ scanKeywordAndIdentifier initPos =
    in $( switch
           [|
             case _ of
-              "and" -> checkNextMultipleCharToken AND
-              "class" -> checkNextMultipleCharToken CLASS
-              "else" -> checkNextMultipleCharToken ELSE
-              "false" -> checkNextMultipleCharToken FALSE
-              "for" -> checkNextMultipleCharToken FOR
-              "fun" -> checkNextMultipleCharToken FUNN
-              "if" -> checkNextMultipleCharToken IF
-              "nil" -> checkNextMultipleCharToken NIL
-              "or" -> checkNextMultipleCharToken OR
-              "print" -> checkNextMultipleCharToken PRINT
-              "return" -> checkNextMultipleCharToken RETURN
-              "super" -> checkNextMultipleCharToken SUPER
-              "this" -> checkNextMultipleCharToken THIS
-              "true" -> checkNextMultipleCharToken TRUE
-              "var" -> checkNextMultipleCharToken VAR
-              "while" -> checkNextMultipleCharToken WHILE
+              "and" -> checkNextMultipleCharToken AND "and"
+              "class" -> checkNextMultipleCharToken CLASS "class"
+              "else" -> checkNextMultipleCharToken ELSE "else"
+              "false" -> checkNextMultipleCharToken FALSE "false"
+              "for" -> checkNextMultipleCharToken FOR "for"
+              "fun" -> checkNextMultipleCharToken FUNN "fun"
+              "if" -> checkNextMultipleCharToken IF "if"
+              "nil" -> checkNextMultipleCharToken NIL "nil"
+              "or" -> checkNextMultipleCharToken OR "or"
+              "print" -> checkNextMultipleCharToken PRINT "print"
+              "return" -> checkNextMultipleCharToken RETURN "return"
+              "super" -> checkNextMultipleCharToken SUPER "super"
+              "this" -> checkNextMultipleCharToken THIS "this"
+              "true" -> checkNextMultipleCharToken TRUE "true"
+              "var" -> checkNextMultipleCharToken VAR "var"
+              "while" -> checkNextMultipleCharToken WHILE "while"
               _ -> do
                 scanIdentifier <|> scanNumber initPos
             |]
