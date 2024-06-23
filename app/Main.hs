@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 module Main (main) where
 
 import CmdlineOptions qualified as CmdLine
@@ -55,12 +57,13 @@ run path sourceBS = do
   liftIO $ printRes tokens
   where
     printRes
-      :: Either S.CodeError (Vector S.ScannerError, Vector Token, ByteString) -> IO ()
-    printRes toks = case toks of
-      Right (errVec, v, _restOfBS) ->
+      :: (Vector (S.ScannerError S.AsPos), Maybe (Vector Token, ByteString))
+      -> IO ()
+    printRes (errVec, toks) = case toks of
+      Just (v, _restOfBS) ->
         let p = B.putStrLn . B.pack . show
          in do
               printErrors path sourceBS errVec
               forM_ v p
       -- B.putStrLn ("Rest of BS: " <> restOfBS) NOTE: it's been a long time since i've seen a non-empty bytestring out of the scan function
-      Left e -> print e
+      Nothing -> printErrors path sourceBS errVec

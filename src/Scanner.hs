@@ -4,7 +4,6 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -12,6 +11,7 @@
 module Scanner
   ( CodeError (..)
   , ScannerError (..)
+  , ScanLocation (..)
   , runScanFile
   , simpleScanParser
   , scanOperatorOrSimple
@@ -30,7 +30,7 @@ import Control.Monad.ST
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Char (isLetter)
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Data.STRef
 import Data.Vector (Vector)
 import Data.Vector qualified as V
@@ -40,39 +40,43 @@ import Token
 import VectorBuilder.Builder qualified as VBB
 import VectorBuilder.Vector qualified as VBV
 
-data ScannerError
-  = UnexpectedCharacter
-      !Pos
-      -- ^ The position of the unexpected character
-      !(Maybe (Int, Int))
-      -- ^ The line and colum of the unexpected character
-      !Char
-      -- ^ The unexpected character itself
-  | UnterminatedString
-      !Pos
-      -- ^ The position of the start of the unterminated string
-      !(Maybe (Int, Int))
-      -- ^ The line and colum of the start of the unterminated string
-  | InvalidNumberLiteral
-      !(Pos, Pos)
-      -- ^ The position of the start and end of the invalid number literal
-      !(Maybe ((Int, Int), (Int, Int)))
-      -- ^ The line and colum of the start and end of the invalid number literal
-      !ByteString
-      -- ^ The bytestring of the infalid number literal itself
-  | UnexpectedScannerFailure
-      !Pos
-      -- ^  The position where the failure was reported. This should never happen though, becasue
-      --  the last alternative for failing to parse anything, is to throw an error and continue.
-      !(Maybe (Int, Int))
-  deriving (Show)
+data ScanLocation = AsPos | AsLineCol
 
-getScannerErrorPos :: ScannerError -> [Pos]
+type family GetScanLocationType (a :: ScanLocation) = res | res -> a where
+  GetScanLocationType AsPos = Pos
+  GetScanLocationType AsLineCol = (Int, Int)
+
+data ScannerError (a :: ScanLocation) where
+  UnexpectedCharacter
+    :: !(GetScanLocationType a)
+    -- ^ The position/lineCol of the unexpected character
+    -> !Char
+    -- ^ The unexpected character itself
+    -> ScannerError a
+  UnterminatedString
+    :: !(GetScanLocationType a)
+    -- ^ The position of the start of the unterminated string
+    -> ScannerError a
+  InvalidNumberLiteral
+    :: !(GetScanLocationType a, GetScanLocationType a)
+    -- ^ The position of the start and end of the invalid number literal
+    -> !ByteString
+    -- ^ The bytestring of the infalid number literal itself
+    -> ScannerError a
+  UnexpectedScannerFailure
+    :: !(GetScanLocationType a)
+    -- ^  The position where the failure was reported. This should never happen though, becasue
+    --  the last alternative for failing to parse anything, is to throw an error and continue.
+    -> ScannerError a
+
+deriving instance Show (GetScanLocationType a) => Show (ScannerError a)
+
+getScannerErrorPos :: ScannerError AsPos -> [Pos]
 getScannerErrorPos = \case
-  UnexpectedCharacter p _ _ -> [p]
-  UnterminatedString p _ -> [p]
-  InvalidNumberLiteral (b, e) _ _ -> [b, e]
-  UnexpectedScannerFailure p _ -> [p]
+  UnexpectedCharacter p _ -> [p]
+  UnterminatedString p -> [p]
+  InvalidNumberLiteral (b, e) _ -> [b, e]
+  UnexpectedScannerFailure p -> [p]
 
 data CodeError
   = CUnexpectedCharacter !Char !(Int, Int)
@@ -80,13 +84,13 @@ data CodeError
   | CInvalidNumberLiteral !(Int, Int) !ByteString
   deriving (Show)
 
-newtype ScanErr = ErrVec (Vector ScannerError)
+newtype ScanErr = ErrVec (Vector (ScannerError AsPos))
   deriving (Show)
 
 simpleScanParser
   :: ByteString
   -> ParserST s (STRef s ScanErr) e a
-  -> ST s (Vector ScannerError, Result e a)
+  -> ST s (Vector (ScannerError AsPos), Result e a)
 simpleScanParser bs p = do
   stref <- newSTRef $ ErrVec V.empty
   res <- runParserST p stref 0 bs
@@ -95,7 +99,7 @@ simpleScanParser bs p = do
 
 runScanFile
   :: ByteString
-  -> Either CodeError (Vector ScannerError, Vector Token, ByteString)
+  -> (Vector (ScannerError AsPos), Maybe (Vector Token, ByteString))
 runScanFile bs = runST $ do
   stRef <- newSTRef $ ErrVec V.empty
 
@@ -103,38 +107,23 @@ runScanFile bs = runST $ do
 
   (ErrVec errVec) <- readSTRef stRef
   pure $ case res of
-    OK vec _ restOfBs ->
-      Right (errVec, vec, restOfBs)
-    Err e -> case e of
-      -- only one position, the pattern will always be matched
-      UnexpectedCharacter pos _ ch ->
-        Left $ CUnexpectedCharacter ch (errorGetLineCol pos)
-      UnterminatedString pos _ ->
-        Left $ CUnterminatedString (errorGetLineCol pos)
-      InvalidNumberLiteral (pos, _) _ errBs ->
-        Left $ CInvalidNumberLiteral (errorGetLineCol pos) errBs
-      _ -> error "Failure should never propagate here"
-    _ -> error "Failure should never propagate here"
-  where
-    errorGetLineCol :: Pos -> (Int, Int)
-    errorGetLineCol pos =
-      fromMaybe
-        ( error "Reached the impossible, position not found in original input bytestring"
-        )
-        . listToMaybe
-        $ posLineCols bs [pos]
+    OK vec _ restOfBs -> (errVec, Just (vec, restOfBs))
+    Err e -> (V.snoc errVec e, Nothing)
+    Fail -> (errVec, Nothing) -- though failure should never propagate here
 
-reportError :: ScannerError -> ParserT (STMode s) (STRef s ScanErr) e ()
+reportError
+  :: ScannerError AsPos -> ParserT (STMode s) (STRef s ScanErr) e ()
 reportError e = do
   stref <- ask
   liftST $ appendSTRefSCanErrors stref e
   where
-    appendSTRefSCanErrors :: STRef s ScanErr -> ScannerError -> ST s ()
+    appendSTRefSCanErrors :: STRef s ScanErr -> ScannerError AsPos -> ST s ()
     appendSTRefSCanErrors stref er = modifySTRef' stref (apndScanningErrors er)
       where
         apndScanningErrors codeError (ErrVec v) = ErrVec $ V.snoc v codeError
 
-skipWhiteSpace :: ParserT (STMode s) (STRef s ScanErr) ScannerError ()
+skipWhiteSpace
+  :: ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) ()
 skipWhiteSpace =
   $( switch
       [|
@@ -148,7 +137,7 @@ skipWhiteSpace =
         |]
    )
   where
-    skipLineComment :: ParserT (STMode s) (STRef s ScanErr) ScannerError ()
+    skipLineComment :: ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) ()
     skipLineComment =
       branch eof (pure ()) $
         withOption
@@ -160,15 +149,16 @@ skipWhiteSpace =
           (pure ())
 
 handleErr
-  :: ScannerError -> ParserT (STMode s) (STRef s ScanErr) ScannerError ()
+  :: ScannerError AsPos
+  -> ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) ()
 handleErr e = do
   reportError e
   moveToCorrespondingPlace
   where
     moveToCorrespondingPlace = case e of
-      UnexpectedCharacter unexpectedCharPos _ _ -> setPos unexpectedCharPos >> skipMany (skip 1) -- skipMany to not fail if we are at end
-      UnterminatedString _ _ -> setPos endPos
-      InvalidNumberLiteral (_, invalidEndPos) _ _ -> setPos invalidEndPos
+      UnexpectedCharacter unexpectedCharPos _ -> setPos unexpectedCharPos >> skipMany (skip 1) -- skipMany to not fail if we are at end
+      UnterminatedString _ -> setPos endPos
+      InvalidNumberLiteral (_, invalidEndPos) _ -> setPos invalidEndPos
       er -> err er
 
 skipSatisfyAlphaNumeric :: ParserT st r e ()
@@ -180,7 +170,8 @@ skipSatisfyAlphaNumeric =
     isLetter
 
 -------------------------------------------------------------------------------------
-scanNumber :: Pos -> ParserT (STMode s) (STRef s ScanErr) ScannerError TokenType
+scanNumber
+  :: Pos -> ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) TokenType
 scanNumber initialPos =
   parse
   where
@@ -201,7 +192,7 @@ scanNumber initialPos =
             dotPos <- getPos
             cmaybe <- optional (lookahead anyChar)
             case cmaybe of
-              Nothing -> err $ InvalidNumberLiteral (initialPos, dotPos) Nothing (B.snoc firstBs '.')
+              Nothing -> err $ InvalidNumberLiteral (initialPos, dotPos) (B.snoc firstBs '.')
               Just ch ->
                 if isDigit ch
                   then do
@@ -221,19 +212,19 @@ scanNumber initialPos =
                           (skipSatisfy (\c -> c /= ' ' || c /= '\n' || c /= '\t' || c /= '\n'))
                     finalPos <- getPos
                     err $
-                      InvalidNumberLiteral (initialPos, finalPos) Nothing (firstBs <> invalidRest)
+                      InvalidNumberLiteral (initialPos, finalPos) (firstBs <> invalidRest)
         )
         -- if there __IS NOT__ a fractional part, we return the integral part
         (pure $ NUMBER n1)
 
 scanStringLiteral
-  :: Pos -> ParserT (STMode s) (STRef s ScanErr) ScannerError TokenType
+  :: Pos -> ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) TokenType
 scanStringLiteral initPos = do
   bs <- byteStringOf $ skipMany (skipSatisfy (/= '"'))
   branch
     (skip 1) -- skip the (") character
     (pure (STRING bs))
-    (err $ UnterminatedString initPos Nothing)
+    (err $ UnterminatedString initPos)
 
 {- |
 Scans:
@@ -243,7 +234,7 @@ Scans:
 - operators: @'-'@, @'+'@, @';'@, @'*'@, @'!'@, @'!='@, @'='@, @'=='@, @'<'@, @'<='@, @'>'@, @'>='@
 -}
 scanOperatorOrSimple
-  :: Pos -> ParserT (STMode s) (STRef s ScanErr) ScannerError TokenType
+  :: Pos -> ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) TokenType
 scanOperatorOrSimple initPos =
   $( switch
       [|
@@ -276,7 +267,7 @@ scanOperatorOrSimple initPos =
 
 scanKeywordAndIdentifier
   :: Pos
-  -> ParserT (STMode s) (STRef s ScanErr) ScannerError TokenType
+  -> ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) TokenType
 scanKeywordAndIdentifier initPos =
   let checkNextMultipleCharToken :: TokenType -> ParserT st r e TokenType
       checkNextMultipleCharToken other =
@@ -311,7 +302,8 @@ scanKeywordAndIdentifier initPos =
             |]
        )
 
-scanSingleToken :: ParserT (STMode s) (STRef s ScanErr) ScannerError Token
+scanSingleToken
+  :: ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) Token
 scanSingleToken = do
   initialPos <- getPos
   toktype <- getTokType initialPos
@@ -322,21 +314,21 @@ scanSingleToken = do
         <|> scanKeywordAndIdentifier initPos
         <|> ifNothingMatchesReportError
 
-ifNothingMatchesReportError :: ParserT st r ScannerError b
+ifNothingMatchesReportError :: ParserT st r (ScannerError AsPos) b
 ifNothingMatchesReportError = do
   ch <- lookahead anyChar
   pos <- getPos
-  err $ UnexpectedCharacter pos Nothing ch
+  err $ UnexpectedCharacter pos ch
 
 untilEnd
-  :: ParserT (STMode s) (STRef s ScanErr) ScannerError elem
-  -> ParserT (STMode s) (STRef s ScanErr) ScannerError (Vector elem)
+  :: ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) elem
+  -> ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) (Vector elem)
 untilEnd p = VBV.build <$> go VBB.empty (skipWhiteSpace >> p)
   where
     go
       :: VBB.Builder a
-      -> ParserT (STMode s) (STRef s ScanErr) ScannerError a
-      -> ParserT (STMode s) (STRef s ScanErr) ScannerError (VBB.Builder a)
+      -> ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) a
+      -> ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) (VBB.Builder a)
     go carry parser@(ParserT initial) =
       ParserT \fp !r eob s n st ->
         case initial fp r eob s n st of
@@ -352,9 +344,10 @@ untilEnd p = VBV.build <$> go VBB.empty (skipWhiteSpace >> p)
             (pure carry)
             ( do
                 pos <- getPos
-                reportError $ UnexpectedScannerFailure pos Nothing
+                reportError $ UnexpectedScannerFailure pos
                 pure carry
             )
+
         whenError a = do
           handleErr a
           branch

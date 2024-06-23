@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 module Diagnostics (printErrors) where
 
 import Data.ByteString (ByteString)
@@ -8,13 +10,12 @@ import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Vector (Vector)
 import Data.Vector qualified as V
-import Debug.Trace
 import Error.Diagnose
-import Error.Diagnose.Report (pattern Err, pattern Warn)
 import FlatParse.Stateful (Pos, posLineCols)
 import Scanner
 
-diagnoseFile :: FilePath -> ByteString -> Vector ScannerError -> Diagnostic Text
+diagnoseFile
+  :: FilePath -> ByteString -> Vector (ScannerError AsPos) -> Diagnostic Text
 diagnoseFile filePath originalFile vecErr =
   foldl'
     ( \diagAccum nextScanErr -> addReport diagAccum (toReport filePath nextScanErr)
@@ -23,10 +24,11 @@ diagnoseFile filePath originalFile vecErr =
     . refineScannerErrorWithLineCols
     $ vecErr
   where
-    refineScannerErrorWithLineCols :: Vector ScannerError -> Vector ScannerError
+    refineScannerErrorWithLineCols
+      :: Vector (ScannerError AsPos) -> Vector (ScannerError AsLineCol)
     refineScannerErrorWithLineCols vec = V.fromList $ go linecols vec []
       where
-        getPositions :: Vector ScannerError -> [Pos]
+        getPositions :: Vector (ScannerError AsPos) -> [Pos]
         getPositions v = concatMap getScannerErrorPos $ V.toList v
 
         linecols :: [(Int, Int)]
@@ -37,26 +39,30 @@ diagnoseFile filePath originalFile vecErr =
             fixLineCol :: (Int, Int) -> (Int, Int)
             fixLineCol (x, y) = (x + 1, y + 1)
 
-        go :: [(Int, Int)] -> Vector ScannerError -> [ScannerError] -> [ScannerError]
+        go
+          :: [(Int, Int)]
+          -> Vector (ScannerError AsPos)
+          -> [ScannerError AsLineCol]
+          -> [ScannerError AsLineCol]
         go lineCols vecErrs resAccum = case V.uncons vecErrs of
           Nothing -> resAccum
           Just (e, errs) -> case e of
-            UnexpectedCharacter p _ ch -> case lineCols of
-              (x : restLineCols) -> go restLineCols errs (UnexpectedCharacter p (Just x) ch : resAccum)
+            UnexpectedCharacter _ ch -> case lineCols of
+              (x : restLineCols) -> go restLineCols errs (UnexpectedCharacter x ch : resAccum)
               _ -> error "Impossible"
-            UnterminatedString p _ -> case lineCols of
+            UnterminatedString _ -> case lineCols of
               [] -> error "Impossible"
-              (x : restLineCols) -> go restLineCols errs (UnterminatedString p (Just x) : resAccum)
-            InvalidNumberLiteral ps _ bs -> case lineCols of
-              (x : y : restLineCols) -> go restLineCols errs (InvalidNumberLiteral ps (Just (x, y)) bs : resAccum)
+              (x : restLineCols) -> go restLineCols errs (UnterminatedString x : resAccum)
+            InvalidNumberLiteral _ bs -> case lineCols of
+              (x : y : restLineCols) -> go restLineCols errs (InvalidNumberLiteral (x, y) bs : resAccum)
               _ -> error "Impossible"
-            UnexpectedScannerFailure p _ -> case lineCols of
-              (x : restLineCols) -> go restLineCols errs (UnexpectedScannerFailure p (Just x) : resAccum)
+            UnexpectedScannerFailure _ -> case lineCols of
+              (x : restLineCols) -> go restLineCols errs (UnexpectedScannerFailure x : resAccum)
               _ -> error "Impossible"
 
-    toReport :: FilePath -> ScannerError -> Report Text
+    toReport :: FilePath -> ScannerError AsLineCol -> Report Text
     toReport path = \case
-      UnexpectedCharacter _ (Just begin) ch ->
+      UnexpectedCharacter begin ch ->
         Err
           Nothing
           "Unexpected Character"
@@ -66,29 +72,26 @@ diagnoseFile filePath originalFile vecErr =
             )
           ]
           []
-      UnterminatedString _ (Just begin) ->
+      UnterminatedString begin ->
         Err
           Nothing
           "Unterminated String"
           [(Position begin begin path, This "the start of the unterminated string")]
           []
-      InvalidNumberLiteral _ (Just (begin, end)) _ ->
+      InvalidNumberLiteral (begin, end) _ ->
         Err
           Nothing
           "Invalid Number Literal"
           [(Position begin end path, This "the invalid number literal")]
           []
-      UnexpectedScannerFailure _ (Just begin) ->
+      UnexpectedScannerFailure begin ->
         Err
           Nothing
           "Unexpected Scanner Failure"
           [(Position begin begin path, This "here it failed")]
           [Note "THIS SHOULD NEVER HAPPEN, please report it."]
-      _ -> error "Impossible"
 
--- it is guaranteed that by this point all scanner errors have their positions in terms of line/columns
-
-printErrors :: FilePath -> ByteString -> Vector ScannerError -> IO ()
+printErrors :: FilePath -> ByteString -> Vector (ScannerError AsPos) -> IO ()
 printErrors filePath originalFile vecErr =
   printDiagnostic
     stderr
