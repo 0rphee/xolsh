@@ -9,7 +9,7 @@ import Data.ByteString.Char8 as B
 import Options.Applicative
 
 newtype Options = Options
-  { sourceCodeFile :: Maybe ByteString
+  { sourceCodeFile :: Maybe FilePath
   }
 
 options :: ParserInfo Options

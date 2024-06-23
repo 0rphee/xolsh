@@ -38,13 +38,14 @@ common common-options
     -funbox-strict-fields
     -fexpose-all-unfoldings
     -threaded
-    -with-rtsopts=-N
     -Wunused-packages
 
   default-extensions:
     LambdaCase
     OverloadedRecordDot
     OverloadedStrings
+    PartialTypeSignatures
+    PatternSynonyms
 
 library
   import:
@@ -55,16 +56,20 @@ library
     src
 
   exposed-modules:
+    Diagnostics
     Expr
     Parser
     Scanner
+    Test
     Token
 
   build-depends:
     bytestring,
     deepseq,
+    diagnose >=2.4 && <4,
     flatparse,
     mtl,
+    text,
     vector-builder,
 
 executable xolsh-exe
@@ -74,6 +79,9 @@ executable xolsh-exe
 
   hs-source-dirs:
     app
+
+  ghc-options:
+    -with-rtsopts=-N
 
   main-is: Main.hs
   other-modules:
@@ -85,6 +93,7 @@ executable xolsh-exe
 
   build-depends:
     bytestring,
+    diagnose,
     mtl,
     optparse-applicative,
     xolsh,

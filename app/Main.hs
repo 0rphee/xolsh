@@ -6,6 +6,7 @@ import Control.Monad.State.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Vector (Vector)
+import Diagnostics (printErrors)
 import Scanner qualified as S
 import System.Exit (ExitCode (..), exitWith)
 import Token
@@ -31,11 +32,11 @@ main = do
     Nothing -> runAppM runPrompt
     Just sourceCodeFile -> runAppM $ runFile sourceCodeFile
 
-runFile :: (MonadIO m, MonadState AppState m) => ByteString -> m ()
+runFile :: (MonadIO m, MonadState AppState m) => FilePath -> m ()
 runFile path = do
-  liftIO $ B.putStrLn ("Run file: " <> path)
-  fileContents <- liftIO $ B.readFile (B.unpack path)
-  run fileContents
+  liftIO $ putStrLn ("Run file: " <> path)
+  fileContents <- liftIO $ B.readFile path
+  run path fileContents
   (StateErr err) <- get
   when err (liftIO $ exitWith (ExitFailure 65))
 
@@ -46,10 +47,10 @@ runPrompt = forever $ do
   liftIO $
     if B.null line
       then B.putStr "\n"
-      else run line
+      else run "shell" line
 
-run :: MonadIO m => ByteString -> m ()
-run sourceBS = do
+run :: MonadIO m => FilePath -> ByteString -> m ()
+run path sourceBS = do
   let tokens = S.runScanFile sourceBS
   liftIO $ printRes tokens
   where
@@ -59,7 +60,7 @@ run sourceBS = do
       Right (errVec, v, _restOfBS) ->
         let p = B.putStrLn . B.pack . show
          in do
-              S.printErrs sourceBS errVec
+              printErrors path sourceBS errVec
               forM_ v p
       -- B.putStrLn ("Rest of BS: " <> restOfBS) NOTE: it's been a long time since i've seen a non-empty bytestring out of the scan function
-      Left e -> S.ppPrintErr e
+      Left e -> print e
