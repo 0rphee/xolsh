@@ -3,7 +3,17 @@ name: CI
 # Trigger the workflow on push or pull request, but only for the main branch
 on:
   pull_request:
+    paths:
+      - '**.hs'
+      - 'stack.yaml'
+      - 'package.yaml'
+      - '**.cabal'
   push:
+    paths:
+      - '**.hs'
+      - 'stack.yaml'
+      - 'package.yaml'
+      - '**.cabal'
   workflow_dispatch:
 
 jobs:
