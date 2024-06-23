@@ -53,8 +53,8 @@ diagnoseFile filePath originalFile vecErr =
             UnterminatedString _ -> case lineCols of
               [] -> error "Impossible"
               (x : restLineCols) -> go restLineCols errs (UnterminatedString x : resAccum)
-            InvalidNumberLiteral _ bs -> case lineCols of
-              (x : y : restLineCols) -> go restLineCols errs (InvalidNumberLiteral (x, y) bs : resAccum)
+            InvalidNumberLiteral _ -> case lineCols of
+              (x : y : restLineCols) -> go restLineCols errs (InvalidNumberLiteral (x, y) : resAccum)
               _ -> error "Impossible"
             UnexpectedScannerFailure _ -> case lineCols of
               (x : restLineCols) -> go restLineCols errs (UnexpectedScannerFailure x : resAccum)
@@ -78,7 +78,7 @@ diagnoseFile filePath originalFile vecErr =
           "Unterminated String"
           [(Position begin begin path, This "the start of the unterminated string")]
           []
-      InvalidNumberLiteral (begin, end) _ ->
+      InvalidNumberLiteral (begin, end) ->
         Err
           Nothing
           "Invalid Number Literal"

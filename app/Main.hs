@@ -22,17 +22,17 @@ newtype AppM a
   = AppM (StateT AppState IO a)
   deriving (Applicative, Functor, Monad, MonadIO, MonadState AppState)
 
-runAppM :: AppM a -> IO a
-runAppM (AppM x) = evalStateT x initialState
-  where
-    initialState = StateErr False
-
 main :: IO ()
 main = do
   (CmdLine.Options sourceCodeFilepath) <- CmdLine.execParser CmdLine.options
   case sourceCodeFilepath of
     Nothing -> runAppM runPrompt
     Just sourceCodeFile -> runAppM $ runFile sourceCodeFile
+  where
+    runAppM :: AppM a -> IO a
+    runAppM (AppM x) = evalStateT x initialState
+      where
+        initialState = StateErr False
 
 runFile :: (MonadIO m, MonadState AppState m) => FilePath -> m ()
 runFile path = do
@@ -53,7 +53,7 @@ runPrompt = forever $ do
 
 run :: MonadIO m => FilePath -> ByteString -> m ()
 run path sourceBS = do
-  let tokens = S.runScanFile sourceBS
+  let tokens = S.runScanOnString sourceBS
   liftIO $ printRes tokens
   where
     printRes

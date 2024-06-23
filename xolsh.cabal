@@ -60,7 +60,6 @@ library
     Expr
     Parser
     Scanner
-    Test
     Token
 
   build-depends:
@@ -68,7 +67,6 @@ library
     deepseq,
     diagnose >=2.4 && <4,
     flatparse,
-    mtl,
     text,
     vector-builder,
 
@@ -93,7 +91,6 @@ executable xolsh-exe
 
   build-depends:
     bytestring,
-    diagnose,
     mtl,
     optparse-applicative,
     xolsh,

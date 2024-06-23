@@ -12,7 +12,7 @@ module Scanner
   ( CodeError (..)
   , ScannerError (..)
   , ScanLocation (..)
-  , runScanFile
+  , runScanOnString
   , simpleScanParser
   , scanOperatorOrSimple
   , scanKeywordAndIdentifier
@@ -60,8 +60,8 @@ data ScannerError (a :: ScanLocation) where
   InvalidNumberLiteral
     :: !(GetScanLocationType a, GetScanLocationType a)
     -- ^ The position of the start and end of the invalid number literal
-    -> !ByteString
-    -- ^ The bytestring of the infalid number literal itself
+    -- -> !ByteString
+    -- -- ^ The bytestring of the infalid number literal itself
     -> ScannerError a
   UnexpectedScannerFailure
     :: !(GetScanLocationType a)
@@ -75,7 +75,7 @@ getScannerErrorPos :: ScannerError AsPos -> [Pos]
 getScannerErrorPos = \case
   UnexpectedCharacter p _ -> [p]
   UnterminatedString p -> [p]
-  InvalidNumberLiteral (b, e) _ -> [b, e]
+  InvalidNumberLiteral (b, e) -> [b, e]
   UnexpectedScannerFailure p -> [p]
 
 data CodeError
@@ -97,10 +97,10 @@ simpleScanParser bs p = do
   (ErrVec _errVec) <- readSTRef stref
   pure (_errVec, res)
 
-runScanFile
+runScanOnString
   :: ByteString
   -> (Vector (ScannerError AsPos), Maybe (Vector Token, ByteString))
-runScanFile bs = runST $ do
+runScanOnString bs = runST $ do
   stRef <- newSTRef $ ErrVec V.empty
 
   res <- runParserST (untilEnd scanSingleToken) stRef 0 bs
@@ -158,7 +158,7 @@ handleErr e = do
     moveToCorrespondingPlace = case e of
       UnexpectedCharacter unexpectedCharPos _ -> setPos unexpectedCharPos >> skipMany (skip 1) -- skipMany to not fail if we are at end
       UnterminatedString _ -> setPos endPos
-      InvalidNumberLiteral (_, invalidEndPos) _ -> setPos invalidEndPos
+      InvalidNumberLiteral (_, invalidEndPos) -> setPos invalidEndPos
       er -> err er
 
 skipSatisfyAlphaNumeric :: ParserT st r e ()
@@ -192,7 +192,7 @@ scanNumber initialPos =
             dotPos <- getPos
             cmaybe <- optional (lookahead anyChar)
             case cmaybe of
-              Nothing -> err $ InvalidNumberLiteral (initialPos, dotPos) (B.snoc firstBs '.')
+              Nothing -> err $ InvalidNumberLiteral (initialPos, dotPos)
               Just ch ->
                 if isDigit ch
                   then do
@@ -206,13 +206,11 @@ scanNumber initialPos =
                     pure $ NUMBER (n1 + n2)
                   else do
                     skipBack 1
-                    invalidRest <-
-                      byteStringOf $
-                        skipMany
-                          (skipSatisfy (\c -> c /= ' ' || c /= '\n' || c /= '\t' || c /= '\n'))
+                    skipMany
+                      (skipSatisfy (\c -> c /= ' ' || c /= '\n' || c /= '\t' || c /= '\n'))
                     finalPos <- getPos
                     err $
-                      InvalidNumberLiteral (initialPos, finalPos) (firstBs <> invalidRest)
+                      InvalidNumberLiteral (initialPos, finalPos)
         )
         -- if there __IS NOT__ a fractional part, we return the integral part
         (pure $ NUMBER n1)
@@ -245,7 +243,14 @@ scanOperatorOrSimple initPos =
           "{" -> pure LEFT_BRACE
           "}" -> pure RIGHT_BRACE
           "," -> pure COMMA
-          "." -> pure DOT
+          "." ->
+            branch
+              (skipSome (skipSatisfy isDigit))
+              ( do
+                  ePos <- getPos
+                  err $ InvalidNumberLiteral (initPos, ePos)
+              )
+              (pure DOT)
           "-" -> pure MINUS
           "+" -> pure PLUS
           ";" -> pure SEMICOLON
@@ -310,15 +315,15 @@ scanSingleToken = do
   pure $ Token toktype initialPos
   where
     getTokType initPos =
-      scanOperatorOrSimple initPos
-        <|> scanKeywordAndIdentifier initPos
+      scanKeywordAndIdentifier initPos
+        <|> scanOperatorOrSimple initPos
         <|> ifNothingMatchesReportError
 
-ifNothingMatchesReportError :: ParserT st r (ScannerError AsPos) b
-ifNothingMatchesReportError = do
-  ch <- lookahead anyChar
-  pos <- getPos
-  err $ UnexpectedCharacter pos ch
+    ifNothingMatchesReportError :: ParserT st r (ScannerError AsPos) b
+    ifNothingMatchesReportError = do
+      ch <- lookahead anyChar
+      pos <- getPos
+      err $ UnexpectedCharacter pos ch
 
 untilEnd
   :: ParserT (STMode s) (STRef s ScanErr) (ScannerError AsPos) elem
@@ -338,16 +343,10 @@ untilEnd p = VBV.build <$> go VBB.empty (skipWhiteSpace >> p)
       where
         whenSuccess res = go (carry <> VBB.singleton res) parser
 
+        -- if we failed, even with ifNothingMatchesReportError, it means we
+        -- have gotten to the eof while skipping whitespace, and we should finish
         whenFailure = do
-          branch
-            eof
-            (pure carry)
-            ( do
-                pos <- getPos
-                reportError $ UnexpectedScannerFailure pos
-                pure carry
-            )
-
+          pure carry
         whenError a = do
           handleErr a
           branch
