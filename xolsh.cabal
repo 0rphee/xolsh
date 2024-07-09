@@ -91,6 +91,7 @@ executable xolsh-exe
 
   build-depends:
     bytestring,
+    githash,
     mtl,
     optparse-applicative,
     xolsh,
