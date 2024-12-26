@@ -1,22 +1,16 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module Scanner where
 
-import Control.Monad (unless, when)
-import Control.Monad.IO.Class (MonadIO (liftIO))
-import Control.Monad.RWS.CPS (RWST)
-import Control.Monad.Reader
-  ( MonadReader (ask)
-  , MonadTrans (lift)
-  , ReaderT (runReaderT)
-  )
-import Control.Monad.ST qualified as ST
+import Control.Monad (when)
+import Control.Monad.RWS.CPS
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
-import Data.Function ((&))
 import Data.Functor ((<&>))
-import Data.IORef qualified as IORef
-import Data.STRef qualified as STRef
+import Debug.Trace
+import System.IO.Unsafe (unsafePerformIO)
 import TokenType (Token (..), TokenType (..))
 
 data Scanner = Scanner
@@ -26,33 +20,28 @@ data Scanner = Scanner
   , current :: Int
   , line :: Int
   }
+  deriving (Show)
 
-type ScanM a = forall s. ReaderT (STRef.STRef s Scanner) (ST.ST s) a
+type Error = String
 
-type Errors = [String]
+type ScanM r a = RWS r [Error] Scanner a
 
-scanTokens :: ByteString -> [Token]
-scanTokens source = ST.runST $ do
-  ref <- STRef.newSTRef initialScanner
-  flip runReaderT ref $ do
-    whileM
-      (not <$> isAtEnd)
-      ( do
-          lift $
-            STRef.modifySTRef' ref $
-              \scanner -> scanner {start = scanner.current}
-          scanToken
-      )
-    lift $
-      STRef.modifySTRef' ref $
-        \scanner ->
-          scanner
-            { tokens =
-                Token {ttype = EOF, lexeme = "", literal = Nothing, tline = scanner.line}
-                  : scanner.tokens
-            }
+scanTokens :: ByteString -> ([Token], [Error])
+scanTokens source = (\act -> evalRWS act () initialScanner) $ do
+  whileM
+    (not <$> isAtEnd)
+    ( do
+        modify' $ \scanner -> scanner {start = scanner.current}
+        scanToken
+    )
+  modify' $ \sc ->
+    sc
+      { tokens =
+          Token {ttype = EOF, lexeme = "", literal = Nothing, tline = sc.line}
+            : sc.tokens
+      }
 
-    lift $ STRef.readSTRef ref <&> (.tokens)
+  get <&> (.tokens)
   where
     initialScanner =
       Scanner
@@ -62,11 +51,11 @@ scanTokens source = ST.runST $ do
         , current = 0
         , line = 1
         }
-    isAtEnd :: ScanM Bool
+    isAtEnd :: forall r. ScanM r Bool
     isAtEnd = do
-      scanner <- ask >>= \v -> lift (STRef.readSTRef v)
+      scanner <- get
       pure $ scanner.current >= BS.length scanner.source
-    scanToken :: ScanM ()
+    scanToken :: forall r. ScanM r ()
     scanToken = do
       c <- advance
       case c of
@@ -80,33 +69,75 @@ scanTokens source = ST.runST $ do
         '+' -> addToken1 PLUS
         ';' -> addToken1 SEMICOLON
         '*' -> addToken1 STAR
-        _ -> lerror sc.line "Unexcpected character"
-    advance :: ScanM Char
+        '!' ->
+          match '=' >>= addToken1 . (\cond -> if cond then BANG_EQUAL else BANG)
+        '=' ->
+          match '=' >>= addToken1 . (\cond -> if cond then EQUAL_EQUAL else EQUAL)
+        '<' ->
+          match '=' >>= addToken1 . (\cond -> if cond then LESS_EQUAL else LESS)
+        '>' ->
+          match '=' >>= addToken1 . (\cond -> if cond then GREATER_EQUAL else GREATER)
+        '/' -> do
+          match '/' >>= \case
+            True ->
+              whileM
+                ( do
+                    pc <- peek
+                    end <- isAtEnd
+                    pure $ pc /= '\n' && not end
+                )
+                advance
+            False -> addToken1 SLASH
+        -- ignore whitespace
+        ' ' -> pure ()
+        '\r' -> pure ()
+        '\t' -> pure ()
+        '\n' -> modify' $ \sc -> sc {line = sc.line + 1}
+        _ -> do
+          sc <- get
+          lerror sc.line "Unexpected character"
+    advance :: forall r. ScanM r Char
     advance = do
-      scanner <- ask >>= lift . STRef.readSTRef
-      let newScanner = scanner {current = scanner.current + 1}
-      ask >>= \ref -> lift $ STRef.writeSTRef ref newScanner
-      pure $ BS.index newScanner.source newScanner.current
-    addToken1 :: TokenType -> ScanM ()
+      oldScanner <- get
+      let newScanner = oldScanner {current = oldScanner.current + 1}
+      put newScanner
+      pure $ BS.index oldScanner.source oldScanner.current
+    addToken1 :: forall r. TokenType -> ScanM r ()
     addToken1 ttype = addToken2 ttype Nothing
-    addToken2 :: TokenType -> Maybe String -> ScanM ()
-    addToken2 ttype literal = do
-      ask >>= \ref -> lift
-        $ STRef.modifySTRef'
-          ref
-        $ \sc ->
-          let text = BS.take (sc.current - sc.start) (BS.drop sc.start sc.source)
-           in sc {tokens = Token ttype text literal sc.line : sc.tokens}
+    addToken2 :: forall r. TokenType -> Maybe String -> ScanM r ()
+    addToken2 ttype literal = modify' $ \sc ->
+      -- substring
+      let text = BS.take (sc.current - sc.start) (BS.drop sc.start sc.source)
+       in sc {tokens = Token ttype text literal sc.line : sc.tokens}
+    match :: forall r. Char -> ScanM r Bool
+    match expected = do
+      e <- isAtEnd
+      sc <- get
+      if
+        | e -> pure False
+        | BS.index sc.source sc.current /= expected -> pure False
+        | otherwise -> do
+            put $ sc {current = sc.current + 1}
+            pure True
+    peek :: forall r. ScanM r Char
+    peek = do
+      isAtEnd >>= \case
+        True -> pure '\0'
+        False -> do
+          sc <- get
+          pure $ BS.index sc.source sc.current
 
+{-# INLINE whileM #-}
+{-# SPECIALIZE whileM :: ScanM r Bool -> ScanM r Bool -> ScanM r () #-}
 whileM :: Monad m => m Bool -> m a -> m ()
 whileM cond act = do
   r <- cond
-  when r $ whileM cond act
+  when r $ act >> whileM cond act
 
-lerror :: MonadIO m => Int -> String -> m ()
-lerror line msg = report line "" msg
+lerror :: forall r. Int -> String -> ScanM r ()
+lerror line = report line ""
 
-report :: MonadIO m => Int -> String -> String -> m ()
-report line location msg = liftIO $ do
-  putStrLn $ mconcat ["[line ", show line, "] Error", location, ": ", msg]
-  ask >>= \ref -> IORef.writeIORef ref True
+report :: forall r. Int -> String -> String -> ScanM r ()
+report line location msg = do
+  let er = mconcat ["[line ", show line, "] Error", location, ": ", msg]
+  tell [er]

@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+
 module Main (main) where
 
 import CmdlineOptions qualified
@@ -8,6 +10,7 @@ import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Foldable (traverse_)
 import Data.IORef qualified as IORef
+import Scanner
 import System.Exit qualified
 
 newtype Global = Global {unGlobal :: IORef.IORef Bool}
@@ -18,7 +21,7 @@ main = do
     CmdlineOptions.execParser CmdlineOptions.options
 
   errRef <- liftIO $ Global <$> IORef.newIORef False
-  case sourceCodeFilepath of
+  (`runReaderT` errRef) $ case sourceCodeFilepath of
     Nothing -> runPrompt
     Just sourceCodeFile -> runFile sourceCodeFile
 
@@ -27,7 +30,7 @@ runFile path = do
   liftIO $ B.putStrLn ("Run file: " <> path)
   fileContents <- liftIO $ B.readFile (B.unpack path)
   run fileContents
-  hadError <- liftIO $ ask >>= IORef.readIORef
+  hadError <- ask >>= (liftIO . IORef.readIORef . (.unGlobal))
   liftIO $
     if hadError
       then System.Exit.exitWith $ System.Exit.ExitFailure 65
@@ -41,16 +44,18 @@ runPrompt = forever $ do
     then liftIO $ B.putStr "\n"
     else do
       run line
-      liftIO $ ask >>= \ref -> IORef.writeIORef ref False
+      ask >>= \ref -> liftIO $ IORef.writeIORef ref.unGlobal False
 
 run :: MonadIO m => ByteString -> ReaderT Global m ()
 run sourceBS = do
-  let tokens = scanTokens sourceBS
+  let (tokens, errs) = scanTokens sourceBS
   liftIO $ printRes tokens
+  if null errs
+    then
+      pure ()
+    else do
+      liftIO $ B.putStrLn ""
+      liftIO $ printRes errs
   where
+    printRes :: (Show a, Traversable t) => t a -> IO ()
     printRes = traverse_ print
-
-type Tokens = String
-
-scanTokens :: MonadIO m => ByteString -> ReaderT Global m [Tokens]
-scanTokens errRef = undefined
