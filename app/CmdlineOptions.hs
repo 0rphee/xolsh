@@ -19,7 +19,7 @@ options =
     ( fullDesc
         <> header "xolsh - a lox interpreter written in haskell "
         <> footer
-          "still a work in progress, source code here: https://codeberg.org/0rphee/xolsh, \
+          "still a work in progress, source code here: https://github.com/0rphee/xolsh, \
           \following the Crafting Interpreters book: https://craftinginterpreters.com/"
         <> failureCode 64
     )
