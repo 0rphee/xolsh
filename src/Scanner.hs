@@ -8,10 +8,9 @@ import Control.Monad (when)
 import Control.Monad.RWS.CPS
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
+import Data.Char (isAlpha, isDigit)
 import Data.Functor ((<&>))
-import Debug.Trace
-import System.IO.Unsafe (unsafePerformIO)
-import TokenType (Token (..), TokenType (..))
+import TokenType (Literal (..), Token (..), TokenType (..))
 
 data Scanner = Scanner
   { source :: ByteString
@@ -26,6 +25,15 @@ type Error = String
 
 type ScanM r a = RWS r [Error] Scanner a
 
+substring :: ByteString -> Int -> Int -> ByteString
+substring bs start end = BS.take (end - start) (BS.drop start bs)
+
+myIsAlpha :: Char -> Bool
+myIsAlpha c = isAlpha c || c == '_'
+
+myIsAlphaNum :: Char -> Bool
+myIsAlphaNum c = myIsAlpha c || isDigit c
+
 scanTokens :: ByteString -> ([Token], [Error])
 scanTokens source = (\act -> evalRWS act () initialScanner) $ do
   whileM
@@ -37,7 +45,7 @@ scanTokens source = (\act -> evalRWS act () initialScanner) $ do
   modify' $ \sc ->
     sc
       { tokens =
-          Token {ttype = EOF, lexeme = "", literal = Nothing, tline = sc.line}
+          Token {ttype = EOF, lexeme = "", literal = NoLit, tline = sc.line}
             : sc.tokens
       }
 
@@ -93,9 +101,14 @@ scanTokens source = (\act -> evalRWS act () initialScanner) $ do
         '\r' -> pure ()
         '\t' -> pure ()
         '\n' -> modify' $ \sc -> sc {line = sc.line + 1}
-        _ -> do
-          sc <- get
-          lerror sc.line "Unexpected character"
+        '"' -> string
+        _ ->
+          if
+            | isDigit c -> number
+            | myIsAlpha c -> identifier
+            | otherwise -> do
+                sc <- get
+                lerror sc.line "Unexpected character"
     advance :: forall r. ScanM r Char
     advance = do
       oldScanner <- get
@@ -103,11 +116,11 @@ scanTokens source = (\act -> evalRWS act () initialScanner) $ do
       put newScanner
       pure $ BS.index oldScanner.source oldScanner.current
     addToken1 :: forall r. TokenType -> ScanM r ()
-    addToken1 ttype = addToken2 ttype Nothing
-    addToken2 :: forall r. TokenType -> Maybe String -> ScanM r ()
+    addToken1 ttype = addToken2 ttype NoLit
+    addToken2 :: forall r. TokenType -> Literal -> ScanM r ()
     addToken2 ttype literal = modify' $ \sc ->
       -- substring
-      let text = BS.take (sc.current - sc.start) (BS.drop sc.start sc.source)
+      let text = substring sc.source sc.start sc.current
        in sc {tokens = Token ttype text literal sc.line : sc.tokens}
     match :: forall r. Char -> ScanM r Bool
     match expected = do
@@ -126,6 +139,59 @@ scanTokens source = (\act -> evalRWS act () initialScanner) $ do
         False -> do
           sc <- get
           pure $ BS.index sc.source sc.current
+    string :: forall r. ScanM r ()
+    string = do
+      whileM
+        ( do
+            c <- peek
+            e <- isAtEnd
+            pure $ c /= '"' && not e
+        )
+        ( do
+            c <- peek
+            when ('\n' /= c) $ modify' $ \sc -> sc {line = sc.line + 1}
+            advance
+        )
+      e <- isAtEnd
+      if e
+        then do
+          l <- (.line) <$> get
+          lerror l "Unterminated string."
+          pure ()
+        else do
+          advance
+          sc <- get
+          let value = substring sc.source (sc.start + 1) (sc.current - 1)
+          addToken2 STRING (LitStr value)
+    number :: forall r. ScanM r ()
+    number = do
+      whileM
+        (isDigit <$> peek)
+        advance
+      -- look for fractional part
+      p1 <- peek
+      p2 <- peekNext
+      when
+        (p1 == '.' && isDigit p2)
+        (advance {- consume the "." -} >> whileM (isDigit <$> peek) advance)
+      sc <- get
+      addToken2
+        NUMBER
+        (LitNum $ read . BS.unpack $ substring sc.source sc.start sc.current)
+    peekNext :: forall r. ScanM r Char
+    peekNext = do
+      get <&> \sc ->
+        if sc.current + 1 >= BS.length sc.source
+          then '\0'
+          else BS.index sc.source (sc.current + 1)
+    identifier :: forall r. ScanM r ()
+    identifier = do
+      whileM
+        (myIsAlphaNum <$> peek)
+        advance
+      sc <- get
+      let tokType = identOrKeywTokTy $ substring sc.source sc.start sc.current
+      addToken1 tokType
 
 {-# INLINE whileM #-}
 {-# SPECIALIZE whileM :: ScanM r Bool -> ScanM r Bool -> ScanM r () #-}
@@ -141,3 +207,23 @@ report :: forall r. Int -> String -> String -> ScanM r ()
 report line location msg = do
   let er = mconcat ["[line ", show line, "] Error", location, ": ", msg]
   tell [er]
+
+identOrKeywTokTy :: ByteString -> TokenType
+identOrKeywTokTy = \case
+  "and" -> AND
+  "class" -> CLASS
+  "else" -> ELSE
+  "false" -> FALSE
+  "for" -> FOR
+  "fun" -> FUN
+  "if" -> IF
+  "nil" -> NIL
+  "or" -> OR
+  "print" -> PRINT
+  "return" -> RETURN
+  "super" -> SUPER
+  "this" -> THIS
+  "true" -> TRUE
+  "var" -> VAR
+  "while" -> WHILE
+  _ -> IDENTIFIER

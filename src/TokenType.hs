@@ -1,8 +1,11 @@
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 module TokenType where
 
 import Data.ByteString.Char8 (ByteString)
+import Data.ByteString.Char8 qualified as BS
 
 data TokenType
   = -- Single-character tokens.
@@ -50,12 +53,18 @@ data TokenType
   | EOF
   deriving (Show)
 
+data Literal
+  = NoLit
+  | LitStr ByteString
+  | LitNum Double
+  deriving (Show)
+
 data Token = Token
   { ttype :: TokenType
   , lexeme :: ByteString
-  , literal :: Maybe String {-Object in java-}
+  , literal :: Literal {-Object in java-}
   , tline :: Int
   }
 
 instance Show Token where
-  show tok = show tok.ttype <> " " <> show tok.lexeme <> " " <> show tok.literal
+  show tok = show tok.ttype <> " " <> BS.unpack tok.lexeme <> " " <> show tok.literal
