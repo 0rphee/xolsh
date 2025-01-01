@@ -3,10 +3,12 @@
 
 module Parser where
 
-import Control.Monad (forM, when)
+import Control.Monad (when)
 import Control.Monad.Except
 import Control.Monad.RWS.Strict
+import Data.ByteString.Char8 (ByteString)
 import Data.Functor ((<&>))
+import Error qualified
 import Expr
 import TokenType (Literal (..), Token (..), TokenType (..))
 
@@ -18,11 +20,18 @@ data Parser = Parser
 expression :: ParserM r Expr
 expression = equality
 
-type Error = String
+{- |
+Removing newtypes, @ParserM r a@ is equivalent to:
+  + @RWS r [Error] Parser (Either Error a)@
+  + @RWST r [Error] Parser Identity (Either Error a)@
+  + @r -> Parser -> Identity (Either Error a, Parser, [Error])@
+-}
+type ParserM r a =
+  ExceptT ParseException (RWST r Error.ErrorPresent Parser IO) a
 
-type ParserM r a = RWS r [Error] Parser a
+-- type ParserM r a = RWST r [Error] Parser (Either Error) a
 
-type ParserM2 r a = RWST r [Error] Parser (Either Error) a
+data ParseException = ParseError
 
 {-# INLINE whileParse #-}
 whileParse :: ParserM r Expr -> [TokenType] -> Expr -> ParserM r Expr
@@ -76,9 +85,18 @@ primary = do
       c <- not <$> isAtEnd
       if c then Just <$> peek else pure Nothing
 
-consume :: ParserM r Token
-consume = do
-  undefined
+consume :: TokenType -> ByteString -> ParserM r Token
+consume ttype message =
+  check ttype >>= \c ->
+    if c
+      then advance
+      else
+        peek >>= (`getPError` message) >>= throwError
+
+getPError :: Token -> ByteString -> ParserM r ParseException
+getPError token message = do
+  Error.parseError token message
+  pure ParseError
 
 match :: [TokenType] -> ParserM r Bool
 match = \case

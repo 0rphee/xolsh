@@ -10,6 +10,7 @@ import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.Char (isAlpha, isDigit)
 import Data.Functor ((<&>))
+import Error qualified
 import TokenType (Literal (..), Token (..), TokenType (..))
 
 data Scanner = Scanner
@@ -21,9 +22,7 @@ data Scanner = Scanner
   }
   deriving (Show)
 
-type Error = String
-
-type ScanM r a = RWS r [Error] Scanner a
+type ScanM r a = RWST r Error.ErrorPresent Scanner IO a
 
 substring :: ByteString -> Int -> Int -> ByteString
 substring bs start end = BS.take (end - start) (BS.drop start bs)
@@ -34,8 +33,8 @@ myIsAlpha c = isAlpha c || c == '_'
 myIsAlphaNum :: Char -> Bool
 myIsAlphaNum c = myIsAlpha c || isDigit c
 
-scanTokens :: ByteString -> ([Token], [Error])
-scanTokens source = (\act -> evalRWS act () initialScanner) $ do
+scanTokens :: ByteString -> IO ([Token], Error.ErrorPresent)
+scanTokens source = (\act -> evalRWST act () initialScanner) $ do
   whileM
     (not <$> isAtEnd)
     ( do
@@ -108,7 +107,7 @@ scanTokens source = (\act -> evalRWS act () initialScanner) $ do
             | myIsAlpha c -> identifier
             | otherwise -> do
                 sc <- get
-                lerror sc.line "Unexpected character"
+                Error.scanError sc.line "Unexpected character"
     advance :: forall r. ScanM r Char
     advance = do
       oldScanner <- get
@@ -156,7 +155,7 @@ scanTokens source = (\act -> evalRWS act () initialScanner) $ do
       if e
         then do
           l <- (.line) <$> get
-          lerror l "Unterminated string."
+          Error.scanError l "Unterminated string."
           pure ()
         else do
           advance
@@ -199,14 +198,6 @@ whileM :: Monad m => m Bool -> m a -> m ()
 whileM cond act = do
   r <- cond
   when r $ act >> whileM cond act
-
-lerror :: forall r. Int -> String -> ScanM r ()
-lerror line = report line ""
-
-report :: forall r. Int -> String -> String -> ScanM r ()
-report line location msg = do
-  let er = mconcat ["[line ", show line, "] Error", location, ": ", msg]
-  tell [er]
 
 identOrKeywTokTy :: ByteString -> TokenType
 identOrKeywTokTy = \case

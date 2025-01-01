@@ -54,6 +54,7 @@ library
 
   exposed-modules:
     AstPrinter
+    Error
     Expr
     Parser
     Scanner
