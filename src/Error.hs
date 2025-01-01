@@ -11,7 +11,7 @@ import TokenType (Token (..), TokenType (..))
 data ErrorPresent
   = NoError
   | Error
-  deriving (Show)
+  deriving (Show, Eq)
 
 -- Behaves like Data.Monoid.Any
 instance Semigroup ErrorPresent where

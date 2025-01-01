@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module TokenType where
+module TokenType (TokenType (..), Token (..), Literal (..)) where
 
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS

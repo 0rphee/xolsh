@@ -48,7 +48,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
             : sc.tokens
       }
 
-  get <&> (.tokens)
+  get <&> (reverse . (.tokens))
   where
     initialScanner =
       Scanner

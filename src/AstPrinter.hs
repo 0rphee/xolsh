@@ -18,9 +18,11 @@ printAst = BS.toStrict . BS.toLazyByteString . go
       EGrouping expr -> paren "group" [go expr]
       ELiteral litValue ->
         case litValue of
-          NoLit -> "nil"
+          NoLit -> ""
           LitStr str -> BS.byteString str
           LitNum num -> BS.stringUtf8 $ show num
+          LitBool b -> (if b then "true" else "false")
+          LitNil -> "nil"
       EUnary operator expr -> paren (BS.byteString operator.lexeme) [go expr]
       where
         paren :: BS.Builder -> [BS.Builder] -> BS.Builder

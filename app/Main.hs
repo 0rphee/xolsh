@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import AstPrinter qualified
 import CmdlineOptions qualified
 import Control.Monad
 import Control.Monad.IO.Class
@@ -11,6 +12,7 @@ import Data.ByteString.Char8 qualified as B
 import Data.Foldable (traverse_)
 import Data.IORef qualified as IORef
 import Error qualified
+import Parser (parse)
 import Scanner
 import System.Exit qualified
 
@@ -50,8 +52,16 @@ runPrompt = forever $ do
 
 run :: MonadIO m => ByteString -> ReaderT Global m ()
 run sourceBS = do
-  (tokens, err) <- liftIO $ scanTokens sourceBS
+  (tokens, err1) <- liftIO $ scanTokens sourceBS
   liftIO $ traverse_ print tokens
-  case err of
-    Error.NoError -> pure ()
+  (m, err2) <- liftIO $ parse tokens
+  case m of
+    Nothing -> do
+      -- lift . liftIO $ B.putStrLn "no parse success"
+      pure ()
+    Just r -> do
+      -- lift . liftIO $ B.putStrLn "parse success"
+      lift . liftIO $ B.putStrLn (AstPrinter.printAst r)
+  case err1 <> err2 of
     Error.Error -> ask >>= \ref -> liftIO $ IORef.writeIORef ref.unGlobal Error.Error
+    Error.NoError -> pure ()
