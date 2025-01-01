@@ -51,19 +51,21 @@ data TokenType
   | VAR
   | WHILE
   | EOF
-  deriving (Show)
+  deriving (Eq, Show)
 
 data Literal
   = NoLit
-  | LitStr ByteString
-  | LitNum Double
+  | LitStr !ByteString
+  | LitNum !Double
+  | LitBool !Bool
+  | LitNil
   deriving (Show)
 
 data Token = Token
-  { ttype :: TokenType
-  , lexeme :: ByteString
-  , literal :: Literal {-Object in java-}
-  , tline :: Int
+  { ttype :: !TokenType
+  , lexeme :: !ByteString
+  , literal :: !Literal {-Object in java-}
+  , tline :: !Int
   }
 
 instance Show Token where

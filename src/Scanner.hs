@@ -13,11 +13,11 @@ import Data.Functor ((<&>))
 import TokenType (Literal (..), Token (..), TokenType (..))
 
 data Scanner = Scanner
-  { source :: ByteString
-  , tokens :: [Token]
-  , start :: Int
-  , current :: Int
-  , line :: Int
+  { source :: !ByteString
+  , tokens :: ![Token]
+  , start :: !Int
+  , current :: !Int
+  , line :: !Int
   }
   deriving (Show)
 
