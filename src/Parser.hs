@@ -66,32 +66,6 @@ unary = do
 
 primary :: ParserM r Expr
 primary = do
-  -- f <- match [FALSE]
-  -- if f
-  --   then pure $ ELiteral $ LitBool False
-  --   else do
-  --     t <- match [TRUE]
-  --     if t
-  --       then pure $ ELiteral $ LitBool True
-  --       else do
-  --         n <- match [NIL]
-  --         if n
-  --           then pure $ ELiteral LitNil
-  --           else do
-  --             ns <- match [NUMBER, STRING]
-  --             if ns
-  --               then previous <&> (ELiteral . (.literal))
-  --               else do
-  --                 lp <- match [LEFT_PAREN]
-  --                 if lp
-  --                   then do
-  --                     expr <- expression
-  --                     consume RIGHT_PAREN "Expect ')' after expression."
-  --                     pure $ EGrouping expr
-  --                   else do
-  --                     p <- peek
-  --                     getPError p "Expect expression." >>= throwError
-
   t <- safePeek
   case t of
     Just (Token FALSE _ _ _) -> advance >> pure (ELiteral $ LitBool False)
