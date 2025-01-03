@@ -1,8 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-
-{-# HLINT ignore "Move brackets to avoid $" #-}
 
 module Parser (parse) where
 
@@ -13,16 +10,13 @@ import Data.ByteString.Char8 (ByteString)
 import Data.Functor ((<&>))
 import Error qualified
 import Expr
-import TokenType (Literal (..), Token (..), TokenType (..))
+import TokenType (Token (..), TokenType (..))
 
 data Parser = Parser
   { current :: !Int
   , tokens :: ![Token]
   }
   deriving (Show)
-
-expression :: ParserM r Expr
-expression = equality
 
 {- |
 Removing newtypes, @ParserM r a@ is equivalent to:
@@ -43,6 +37,9 @@ parse tokens = do
   pure (either (const Nothing) Just r, w)
   where
     initialParserState = Parser {current = 0, tokens = tokens}
+
+expression :: ParserM r Expr
+expression = equality
 
 equality :: ParserM r Expr
 equality = comparison >>= whileParse comparison [BANG_EQUAL, EQUAL_EQUAL]
@@ -68,12 +65,12 @@ primary :: ParserM r Expr
 primary = do
   t <- safePeek
   case t of
-    Just (Token FALSE _ _ _) -> advance >> pure (ELiteral $ LitBool False)
-    Just (Token TRUE _ _ _) -> advance >> pure (ELiteral $ LitBool True)
-    Just (Token NIL _ _ _) -> advance >> (pure $ ELiteral LitNil)
-    Just (Token NUMBER _ lit _) -> advance >> (pure $ ELiteral lit)
-    Just (Token STRING _ lit _) -> advance >> (pure $ ELiteral lit)
-    Just (Token LEFT_PAREN _ _ _) ->
+    Just (Token FALSE _ _) -> advance >> pure (ELiteral $ LBool False)
+    Just (Token TRUE _ _) -> advance >> pure (ELiteral $ LBool True)
+    Just (Token NIL _ _) -> advance >> pure (ELiteral LNil)
+    Just (Token (NUMBER lit) _ _) -> advance >> pure (ELiteral $ LNumber lit)
+    Just (Token (STRING lit) _ _) -> advance >> pure (ELiteral $ LString lit)
+    Just (Token LEFT_PAREN _ _) ->
       advance >> do
         expr <- expression
         consume RIGHT_PAREN "Expect ')' after expression."

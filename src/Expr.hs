@@ -1,6 +1,8 @@
-module Expr (Expr (..)) where
+module Expr (Expr (..), LiteralValue (..)) where
 
-import TokenType (Literal (..), Token (..))
+{-Literal (..),-}
+import Data.ByteString.Char8 (ByteString)
+import TokenType (Token (..))
 
 data Expr
   = -- | > EBinary
@@ -16,9 +18,16 @@ data Expr
     EGrouping
       !Expr
   | -- | > ELiteral
-    -- >   Literal -- value
-    ELiteral !Literal
+    -- >   LiteralValue -- value
+    ELiteral !LiteralValue
   | -- | > EUnary
     -- >   Token -- operator
     -- >   Expr -- expression
     EUnary !Token !Expr
+
+data LiteralValue
+  = LNil
+  | LBool !Bool
+  | LString !ByteString
+  | LNumber !Double
+  deriving (Eq)

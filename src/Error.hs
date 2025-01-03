@@ -1,6 +1,13 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 
-module Error (scanError, parseError, ErrorPresent (..)) where
+module Error
+  ( scanError
+  , parseError
+  , reportRuntimeError
+  , ErrorPresent (..)
+  , RuntimeError (..)
+  )
+where
 
 import Control.Monad.IO.Class
 import Control.Monad.RWS.Class
@@ -32,6 +39,15 @@ parseError token message =
   if token.ttype == EOF
     then report token.tline " at end" message
     else report token.tline (" at '" <> token.lexeme <> "'") message
+
+data RuntimeError
+  = RuntimeError {token :: TokenType.Token, message :: BS.ByteString}
+
+reportRuntimeError :: MonadIO m => RuntimeError -> m ()
+reportRuntimeError rerror =
+  liftIO $
+    putStrLnStderr $
+      rerror.message <> "\n[line " <> BS.pack (show rerror.token.tline) <> "]"
 
 report
   :: (MonadIO m, MonadWriter ErrorPresent m)

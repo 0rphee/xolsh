@@ -1,7 +1,12 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module TokenType (TokenType (..), Token (..), Literal (..)) where
+module TokenType
+  ( TokenType (..)
+  , Token (..)
+  -- Literal (..)
+  )
+where
 
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
@@ -30,8 +35,8 @@ data TokenType
   | LESS_EQUAL
   | -- Literals.
     IDENTIFIER
-  | STRING
-  | NUMBER
+  | STRING !ByteString
+  | NUMBER !Double
   | -- Keywords.
     AND
   | CLASS
@@ -52,20 +57,19 @@ data TokenType
   | EOF
   deriving (Eq, Show)
 
-data Literal
-  = NoLit
-  | LitStr !ByteString
-  | LitNum !Double
-  | LitBool !Bool
-  | LitNil
-  deriving (Show)
+-- data Literal
+--   = LitStr !ByteString
+--   | LitNum !Double
+--   | LitBool !Bool
+--   | LitNil
+--   deriving (Show)
 
 data Token = Token
   { ttype :: !TokenType
   , lexeme :: !ByteString
-  , literal :: !Literal {-Object in java-}
-  , tline :: !Int
+  , --   , literal :: !Literal -- Object in jlox reference implementation, removed here and moved to @TokenType@
+    tline :: !Int
   }
 
 instance Show Token where
-  show tok = show tok.ttype <> " " <> BS.unpack tok.lexeme <> " " <> show tok.literal
+  show tok = show tok.ttype <> " " <> BS.unpack tok.lexeme <> " " -- <> show tok.literal

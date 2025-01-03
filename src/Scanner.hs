@@ -11,7 +11,7 @@ import Data.ByteString.Char8 qualified as BS
 import Data.Char (isAlpha, isDigit)
 import Data.Functor ((<&>))
 import Error qualified
-import TokenType (Literal (..), Token (..), TokenType (..))
+import TokenType (Token (..), TokenType (..))
 
 data Scanner = Scanner
   { source :: !ByteString
@@ -44,7 +44,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
   modify' $ \sc ->
     sc
       { tokens =
-          Token {ttype = EOF, lexeme = "", literal = NoLit, tline = sc.line}
+          Token {ttype = EOF, lexeme = "", tline = sc.line}
             : sc.tokens
       }
 
@@ -115,12 +115,12 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
       put newScanner
       pure $ BS.index oldScanner.source oldScanner.current
     addToken1 :: forall r. TokenType -> ScanM r ()
-    addToken1 ttype = addToken2 ttype NoLit
-    addToken2 :: forall r. TokenType -> Literal -> ScanM r ()
-    addToken2 ttype literal = modify' $ \sc ->
+    addToken1 = addToken2
+    addToken2 :: forall r. TokenType -> ScanM r ()
+    addToken2 ttype = modify' $ \sc ->
       -- substring
       let text = substring sc.source sc.start sc.current
-       in sc {tokens = Token ttype text literal sc.line : sc.tokens}
+       in sc {tokens = Token ttype text sc.line : sc.tokens}
     match :: forall r. Char -> ScanM r Bool
     match expected = do
       e <- isAtEnd
@@ -161,7 +161,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
           advance
           sc <- get
           let value = substring sc.source (sc.start + 1) (sc.current - 1)
-          addToken2 STRING (LitStr value)
+          addToken2 (STRING value)
     number :: forall r. ScanM r ()
     number = do
       whileM
@@ -175,8 +175,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
         (advance {- consume the "." -} >> whileM (isDigit <$> peek) advance)
       sc <- get
       addToken2
-        NUMBER
-        (LitNum $ read . BS.unpack $ substring sc.source sc.start sc.current)
+        (NUMBER $ read . BS.unpack $ substring sc.source sc.start sc.current)
     peekNext :: forall r. ScanM r Char
     peekNext = do
       get <&> \sc ->

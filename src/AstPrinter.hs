@@ -7,8 +7,8 @@ import Data.ByteString.Builder qualified as BS
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.Foldable (foldl')
-import Expr (Expr (..))
-import TokenType (Literal (..), Token (..))
+import Expr (Expr (..), LiteralValue (..))
+import TokenType (Token (..))
 
 printAst :: Expr -> ByteString
 printAst = BS.toStrict . BS.toLazyByteString . go
@@ -18,11 +18,10 @@ printAst = BS.toStrict . BS.toLazyByteString . go
       EGrouping expr -> paren "group" [go expr]
       ELiteral litValue ->
         case litValue of
-          NoLit -> ""
-          LitStr str -> BS.byteString str
-          LitNum num -> BS.stringUtf8 $ show num
-          LitBool b -> (if b then "true" else "false")
-          LitNil -> "nil"
+          LNil -> "nil"
+          LString str -> BS.byteString str
+          LNumber num -> BS.stringUtf8 $ show num
+          LBool b -> (if b then "true" else "false")
       EUnary operator expr -> paren (BS.byteString operator.lexeme) [go expr]
       where
         paren :: BS.Builder -> [BS.Builder] -> BS.Builder

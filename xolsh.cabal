@@ -56,6 +56,7 @@ library
     AstPrinter
     Error
     Expr
+    Interpreter
     Parser
     Scanner
     TokenType
