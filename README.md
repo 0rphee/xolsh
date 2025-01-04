@@ -1,3 +1,3 @@
-# xolsh
+# xolsh - hslox
 
-A work-in-progress implementation of jlox from the [Crafting Interpreters Book](https://craftinginterpreters.com/).
+A work-in-progress Haskell implementation of the `lox` programming language (jlox) from the [Crafting Interpreters Book](https://craftinginterpreters.com/).
