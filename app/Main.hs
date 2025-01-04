@@ -72,13 +72,13 @@ run sourceBS = do
       ask >>= \ref -> liftIO $
         IORef.modifyIORef' ref.unGlobal $
           \old -> old {hadError = Error.Error}
-    Error.NoError -> pure ()
-  case maybeStmts of
-    Nothing -> do
-      -- lift . liftIO $ B.putStrLn "no parse success"
-      pure ()
-    Just stmts -> do
-      -- lift . liftIO $ B.putStrLn "parse success"
-      hadRuntimeError <- liftIO $ interpret stmts
-      when (hadRuntimeError == Error.Error) $
-        ask >>= \ref -> liftIO $ IORef.modifyIORef' ref.unGlobal $ \old -> old {hadRuntimeError = Error.Error}
+    Error.NoError ->
+      case maybeStmts of
+        Nothing -> do
+          -- lift . liftIO $ B.putStrLn "no parse success"
+          pure ()
+        Just stmts -> do
+          -- lift . liftIO $ B.putStrLn "parse success"
+          hadRuntimeError <- liftIO $ interpret stmts
+          when (hadRuntimeError == Error.Error) $
+            ask >>= \ref -> liftIO $ IORef.modifyIORef' ref.unGlobal $ \old -> old {hadRuntimeError = Error.Error}

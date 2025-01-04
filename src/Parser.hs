@@ -181,16 +181,13 @@ whileParse inner matchlist eAccum = do
       pure eAccum
 
 synchronize :: ParserM r ()
-synchronize = do
-  advance
-  go
+synchronize = advance >> go
   where
     go :: ParserM r ()
     go = do
       e <- not <$> isAtEnd
       if e
-        then pure ()
-        else do
+        then do
           t <- previous
           p <- peek
           if t.ttype == SEMICOLON
@@ -205,6 +202,8 @@ synchronize = do
               PRINT -> pure ()
               RETURN -> pure ()
               _ -> advance >> go
+        else do
+          pure ()
 
 consume :: TokenType -> ByteString -> ParserM r Token
 consume ttype message =

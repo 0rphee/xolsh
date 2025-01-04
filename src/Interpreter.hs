@@ -26,8 +26,12 @@ import TokenType qualified
 --- module Environment where
 
 data Environment
-  = Environment
-  {values :: Map ByteString Expr.LiteralValue, enclosing :: Maybe Environment}
+  = GlobalEnvironment
+      {values :: Map ByteString Expr.LiteralValue}
+  | LocalEnvironment
+      { values :: Map ByteString Expr.LiteralValue
+      , _enclosing :: Environment -- DO NOT USE
+      }
 
 {-# INLINEABLE define #-}
 define :: ByteString -> Expr.LiteralValue -> Environment -> Environment
@@ -47,7 +51,10 @@ get name = do
     envget :: Environment -> Maybe Expr.LiteralValue
     envget env =
       case env.values M.!? name.lexeme of
-        Nothing -> env.enclosing >>= envget
+        Nothing ->
+          case env of
+            LocalEnvironment _ enc -> envget enc
+            _ -> Nothing
         v -> v
 
 {-# INLINEABLE assign #-}
@@ -67,9 +74,10 @@ assign name value = do
     envassign env =
       if M.member name.lexeme env.values
         then Just $ define name.lexeme value env
-        else case env.enclosing of
-          Nothing -> Nothing
-          Just enc -> (\e -> env {enclosing = Just e}) <$> envassign enc
+        else case env of
+          GlobalEnvironment _ -> Nothing
+          LocalEnvironment values enclosing ->
+            (LocalEnvironment values) <$> envassign enclosing
 
 ----------------------------------
 
@@ -166,11 +174,14 @@ executeBlock :: [Stmt.Stmt] -> InterpeterM ()
 executeBlock statements = do
   State.modify' $ \st ->
     st
-      { environment = Environment {values = mempty, enclosing = Just st.environment}
+      { environment =
+          LocalEnvironment {values = mempty, _enclosing = st.environment}
       }
   finallyE (executeStmts statements) $ do
     State.modify' $ \st ->
-      let enc = fromMaybe (error "impossible") st.environment.enclosing -- TODO
+      let enc = case st.environment of
+            GlobalEnvironment _ -> error "impossible" -- TODO how to remove this? GADTS
+            LocalEnvironment _ e -> e
        in st {environment = enc}
 
 interpret :: [Stmt.Stmt] -> IO Error.ErrorPresent
@@ -183,7 +194,7 @@ interpret statements = do
   where
     initialInterpreterState =
       InterpreterState
-        { environment = Environment {values = mempty, enclosing = Nothing}
+        { environment = GlobalEnvironment {values = mempty}
         }
 
 executeStmts :: [Stmt.Stmt] -> InterpeterM ()
