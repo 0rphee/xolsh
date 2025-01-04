@@ -1,17 +1,79 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module Interpreter (evaluate, interpret) where
 
+import Control.Monad (void)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
-import Control.Monad.State.Strict (StateT (..), evalStateT)
+import Control.Monad.State.Strict
+  ( MonadIO (..)
+  , StateT
+  )
+import Control.Monad.State.Strict qualified as State
+import Control.Monad.Trans.Except (finallyE)
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as M
+import Data.Maybe (fromMaybe)
 import Error qualified
 import Expr qualified
+import Stmt qualified
 import TokenType qualified
 
-data InterpreterState = InterpreterState
+----------------------------------
+--- module Environment where
+
+data Environment
+  = Environment
+  {values :: Map ByteString Expr.LiteralValue, enclosing :: Maybe Environment}
+
+{-# INLINEABLE define #-}
+define :: ByteString -> Expr.LiteralValue -> Environment -> Environment
+define name value environment =
+  environment {values = M.insert name value environment.values}
+
+{-# INLINEABLE get #-}
+get :: TokenType.Token -> InterpeterM Expr.LiteralValue
+get name = do
+  state <- State.get
+  case envget state.environment of
+    Just v -> pure v
+    Nothing ->
+      throwError $
+        Error.RuntimeError name ("Undefined variable '" <> name.lexeme <> "'.")
+  where
+    envget :: Environment -> Maybe Expr.LiteralValue
+    envget env =
+      case env.values M.!? name.lexeme of
+        Nothing -> env.enclosing >>= envget
+        v -> v
+
+{-# INLINEABLE assign #-}
+assign :: TokenType.Token -> Expr.LiteralValue -> InterpeterM ()
+assign name value = do
+  -- there's no implicit variable declaration like in python
+  state <- State.get
+  case envassign state.environment of
+    Just newEnv ->
+      -- we update the interpreter state
+      State.put $ state {environment = newEnv}
+    Nothing ->
+      throwError $
+        Error.RuntimeError name ("Undefined variable '" <> name.lexeme <> "'.")
+  where
+    envassign :: Environment -> Maybe Environment
+    envassign env =
+      if M.member name.lexeme env.values
+        then Just $ define name.lexeme value env
+        else case env.enclosing of
+          Nothing -> Nothing
+          Just enc -> (\e -> env {enclosing = Just e}) <$> envassign enc
+
+----------------------------------
+
+data InterpreterState = InterpreterState {environment :: Environment}
 
 {- |
 Removing newtypes, @InterpreterM a@ is equivalent to:
@@ -29,7 +91,7 @@ evaluate = \case
     case (op.ttype, right) of
       (TokenType.BANG, val) -> pure $ Expr.LBool $ not $ isTruthy val
       (TokenType.MINUS, Expr.LNumber !v) -> pure $ Expr.LNumber (-v)
-      (TokenType.MINUS, _) -> throwError $ Error.RuntimeError op "Operand must be a number." -- TODO
+      (TokenType.MINUS, _) -> throwError $ Error.RuntimeError op "Operand must be a number."
       _ -> pure Expr.LNil -- marked as unreachable (section 7.2.3)
   Expr.EBinary lexpr op rexpr ->
     do
@@ -53,10 +115,15 @@ evaluate = \case
             (Expr.LString l, Expr.LString r) -> pure $ Expr.LString $ l <> r
             _ ->
               throwError $
-                Error.RuntimeError op "Operands must be two numbers or two strings." -- TODO
+                Error.RuntimeError op "Operands must be two numbers or two strings."
         TokenType.SLASH -> Expr.LNumber <$> commonIfNumber (/)
         TokenType.STAR -> Expr.LNumber <$> commonIfNumber (*)
         _ -> pure Expr.LNil -- marked as unreachable (section 7.2.5)
+  Expr.EVariable name -> get name
+  Expr.EAssign name exprValue -> do
+    value <- evaluate exprValue
+    assign name value
+    pure value
   where
     isTruthy :: Expr.LiteralValue -> Bool
     isTruthy = \case
@@ -81,11 +148,45 @@ stringify = \case
   Expr.LBool v -> if v then "true" else "false"
   Expr.LString v -> v
 
-interpret :: Expr.Expr -> IO Error.ErrorPresent
-interpret expression = do
-  value <- evalStateT (runExceptT $ evaluate expression) initialInterpreterState
+execute :: Stmt.Stmt -> InterpeterM ()
+execute = \case
+  Stmt.SExpression expression -> void $ evaluate expression
+  Stmt.SPrint expression ->
+    evaluate expression >>= \value -> liftIO $ BS.putStrLn (stringify value)
+  Stmt.SVar name initializer -> do
+    value <- case initializer of
+      Nothing -> pure Expr.LNil
+      Just v -> evaluate v
+    State.modify' $ \st -> st {environment = define name.lexeme value st.environment}
+  Stmt.SBlock statements -> do
+    executeBlock statements
+    pure ()
+
+executeBlock :: [Stmt.Stmt] -> InterpeterM ()
+executeBlock statements = do
+  State.modify' $ \st ->
+    st
+      { environment = Environment {values = mempty, enclosing = Just st.environment}
+      }
+  finallyE (executeStmts statements) $ do
+    State.modify' $ \st ->
+      let enc = fromMaybe (error "impossible") st.environment.enclosing -- TODO
+       in st {environment = enc}
+
+interpret :: [Stmt.Stmt] -> IO Error.ErrorPresent
+interpret statements = do
+  value <-
+    State.evalStateT (runExceptT $ executeStmts statements) initialInterpreterState
   case value of
     Left e -> Error.reportRuntimeError e >> pure Error.Error
-    Right v -> BS.putStrLn (stringify v) >> pure Error.NoError
+    Right () -> pure Error.NoError
   where
-    initialInterpreterState = InterpreterState
+    initialInterpreterState =
+      InterpreterState
+        { environment = Environment {values = mempty, enclosing = Nothing}
+        }
+
+executeStmts :: [Stmt.Stmt] -> InterpeterM ()
+executeStmts = \case
+  [] -> pure ()
+  (stmt : stmts) -> execute stmt >> executeStmts stmts

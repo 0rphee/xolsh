@@ -59,11 +59,14 @@ library
     Interpreter
     Parser
     Scanner
+    Stmt
     TokenType
 
   build-depends:
     bytestring,
+    containers,
     mtl,
+    transformers,
 
 executable xolsh-exe
   import:

@@ -8,11 +8,10 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
-import Data.Foldable (traverse_)
 import Data.IORef qualified as IORef
 import Error qualified
 import Interpreter (interpret)
-import Parser (parse)
+import Parser (runParse)
 import Scanner
 import System.Exit qualified
 
@@ -40,7 +39,7 @@ main = do
 
 runFile :: MonadIO m => ByteString -> ReaderT Global m ()
 runFile path = do
-  liftIO $ B.putStrLn ("Run file: " <> path)
+  -- liftIO $ B.putStrLn ("Run file: " <> path)
   fileContents <- liftIO $ B.readFile (B.unpack path)
   run fileContents
   globalState <- ask >>= (liftIO . IORef.readIORef . (.unGlobal))
@@ -67,19 +66,19 @@ run :: MonadIO m => ByteString -> ReaderT Global m ()
 run sourceBS = do
   (tokens, err1) <- liftIO $ scanTokens sourceBS
   -- liftIO $ traverse_ print tokens
-  (m, err2) <- liftIO $ parse tokens
+  (maybeStmts, err2) <- liftIO $ runParse tokens
   case err1 <> err2 of
     Error.Error ->
       ask >>= \ref -> liftIO $
         IORef.modifyIORef' ref.unGlobal $
           \old -> old {hadError = Error.Error}
     Error.NoError -> pure ()
-  case m of
+  case maybeStmts of
     Nothing -> do
       -- lift . liftIO $ B.putStrLn "no parse success"
       pure ()
-    Just r -> do
+    Just stmts -> do
       -- lift . liftIO $ B.putStrLn "parse success"
-      hadRuntimeError <- liftIO $ interpret r
+      hadRuntimeError <- liftIO $ interpret stmts
       when (hadRuntimeError == Error.Error) $
         ask >>= \ref -> liftIO $ IORef.modifyIORef' ref.unGlobal $ \old -> old {hadRuntimeError = Error.Error}

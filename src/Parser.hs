@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
-module Parser (parse) where
+module Parser (runParse) where
 
 import Control.Monad (when)
 import Control.Monad.Except
@@ -10,6 +10,7 @@ import Data.ByteString.Char8 (ByteString)
 import Data.Functor ((<&>))
 import Error qualified
 import Expr
+import Stmt qualified
 import TokenType (Token (..), TokenType (..))
 
 data Parser = Parser
@@ -31,15 +32,97 @@ type ParserM r a =
 
 data ParseException = ParseException
 
-parse :: [Token] -> IO (Maybe Expr, Error.ErrorPresent)
-parse tokens = do
-  (r, w) <- (evalRWST . runExceptT) expression () initialParserState
+runParse :: [Token] -> IO (Maybe [Stmt.Stmt], Error.ErrorPresent)
+runParse tokens = do
+  (r, w) <- (evalRWST . runExceptT) parse () initialParserState
   pure (either (const Nothing) Just r, w)
   where
     initialParserState = Parser {current = 0, tokens = tokens}
 
+parse :: ParserM r [Stmt.Stmt]
+parse = reverse <$> go []
+  where
+    go accum = do
+      e <- not <$> isAtEnd
+      if e
+        then do
+          next <- declaration
+          case next of
+            Just n -> go (n : accum)
+            Nothing -> go accum
+        else pure accum
+
+varDeclaration :: ParserM r Stmt.Stmt
+varDeclaration = do
+  name <- consume IDENTIFIER "Expect variable name."
+  m <- match [EQUAL]
+  initializer <- if m then Just <$> expression else pure Nothing
+  consume SEMICOLON "Expect ';' after variable declaration."
+  pure $ Stmt.SVar name initializer
+
+declaration :: ParserM r (Maybe Stmt.Stmt)
+declaration = do
+  e <- tryError $ do
+    m <- match [VAR]
+    if m
+      then varDeclaration
+      else statement
+  case e of
+    Left _ -> synchronize >> pure Nothing
+    Right v -> pure $ Just v
+
+statement :: ParserM r Stmt.Stmt
+statement =
+  match [PRINT] >>= \case
+    True -> printStatement
+    False ->
+      match [LEFT_BRACE] >>= \case
+        True -> Stmt.SBlock <$> block
+        False -> expressionStatement
+
+block :: ParserM r [Stmt.Stmt]
+block = (reverse <$> go []) <* consume RIGHT_BRACE "Expect '}' after block."
+  where
+    go accum = do
+      cond <- liftA2 (&&) (not <$> check RIGHT_BRACE) (not <$> isAtEnd)
+      if cond
+        then do
+          next <- declaration
+          case next of
+            Just n -> go (n : accum)
+            Nothing -> go accum
+        else pure accum
+
+printStatement :: ParserM r Stmt.Stmt
+printStatement = do
+  value <- expression
+  consume SEMICOLON "Expect ';' after value."
+  pure $ Stmt.SPrint value
+
+expressionStatement :: ParserM r Stmt.Stmt
+expressionStatement = do
+  expr <- expression
+  consume SEMICOLON "Expect ';' after expression."
+  pure $ Stmt.SExpression expr
+
 expression :: ParserM r Expr
-expression = equality
+expression = assignment
+
+assignment :: ParserM r Expr
+assignment = do
+  expr <- equality
+  m <- match [EQUAL]
+  if m
+    then do
+      equals <- previous
+      value <- assignment
+      case expr of
+        Expr.EVariable name -> pure $ Expr.EAssign name value
+        _ -> do
+          -- the error is reported, but does not need to synchronize, hence why there's no `throwError`
+          getPError equals "Invalid assignment target."
+          pure expr
+    else pure expr
 
 equality :: ParserM r Expr
 equality = comparison >>= whileParse comparison [BANG_EQUAL, EQUAL_EQUAL]
@@ -70,6 +153,7 @@ primary = do
     Just (Token NIL _ _) -> advance >> pure (ELiteral LNil)
     Just (Token (NUMBER lit) _ _) -> advance >> pure (ELiteral $ LNumber lit)
     Just (Token (STRING lit) _ _) -> advance >> pure (ELiteral $ LString lit)
+    Just tok@(Token IDENTIFIER _ _) -> advance >> pure (EVariable tok)
     Just (Token LEFT_PAREN _ _) ->
       advance >> do
         expr <- expression

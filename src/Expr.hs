@@ -5,7 +5,13 @@ import Data.ByteString.Char8 (ByteString)
 import TokenType (Token (..))
 
 data Expr
-  = -- | > EBinary
+  = -- | > EAssign
+    -- >   Token -- name
+    -- >   Expr  -- value
+    EAssign
+      !Token
+      !Expr
+  | -- | > EBinary
     -- >   Expr -- left
     -- >   Token -- operator
     -- >   Expr -- right
@@ -24,6 +30,9 @@ data Expr
     -- >   Token -- operator
     -- >   Expr -- expression
     EUnary !Token !Expr
+  | -- | > EVariable
+    -- >   Token -- name
+    EVariable !Token
 
 data LiteralValue
   = LNil
