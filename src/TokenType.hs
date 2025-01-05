@@ -70,6 +70,7 @@ data Token = Token
   , --   , literal :: !Literal -- Object in jlox reference implementation, removed here and moved to @TokenType@
     tline :: !Int
   }
+  deriving (Show)
 
-instance Show Token where
-  show tok = show tok.ttype <> " " <> BS.unpack tok.lexeme <> " " -- <> show tok.literal
+-- instance Show Token where
+--   show tok = show tok.ttype <> " " <> BS.unpack tok.lexeme <> " " -- <> show tok.literal

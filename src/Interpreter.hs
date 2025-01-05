@@ -14,13 +14,18 @@ import Control.Monad.State.Strict qualified as State
 import Control.Monad.Trans.Except (finallyE)
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
+import Data.Foldable (traverse_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
-import Data.Maybe (fromMaybe)
 import Error qualified
 import Expr qualified
+import Scanner (whileM)
 import Stmt qualified
 import TokenType qualified
+
+{-# SPECIALIZE whileM ::
+  InterpeterM Bool -> InterpeterM Bool -> InterpeterM ()
+  #-}
 
 ----------------------------------
 --- module Environment where
@@ -77,11 +82,11 @@ assign name value = do
         else case env of
           GlobalEnvironment _ -> Nothing
           LocalEnvironment values enclosing ->
-            (LocalEnvironment values) <$> envassign enclosing
+            LocalEnvironment values <$> envassign enclosing
 
 ----------------------------------
 
-data InterpreterState = InterpreterState {environment :: Environment}
+data InterpreterState = InterpreterState {environment :: !Environment}
 
 {- |
 Removing newtypes, @InterpreterM a@ is equivalent to:
@@ -93,6 +98,12 @@ type InterpeterM a = ExceptT Error.RuntimeError (StateT InterpreterState IO) a
 evaluate :: Expr.Expr -> InterpeterM Expr.LiteralValue
 evaluate = \case
   Expr.ELiteral val -> pure val
+  Expr.ELogical left operator right -> do
+    l <- evaluate left
+    let cond = case operator.ttype of
+          TokenType.OR -> isTruthy l
+          _ -> not $ isTruthy l
+    if cond then pure l else evaluate right
   Expr.EGrouping expr -> evaluate expr
   Expr.EUnary op expr -> do
     right <- evaluate expr
@@ -133,16 +144,17 @@ evaluate = \case
     assign name value
     pure value
   where
-    isTruthy :: Expr.LiteralValue -> Bool
-    isTruthy = \case
-      Expr.LNil -> False
-      Expr.LBool v -> v
-      _ -> True
     isEqual :: Expr.LiteralValue -> Expr.LiteralValue -> Bool
     isEqual l r = case (l, r) of
       -- Lox considers NaN equal to NaN, contrary to what (==) does (7.2.5)
       (Expr.LNumber vl, Expr.LNumber vr) | isNaN vl && isNaN vr -> True
       _ -> l == r
+
+isTruthy :: Expr.LiteralValue -> Bool
+isTruthy = \case
+  Expr.LNil -> False
+  Expr.LBool v -> v
+  _ -> True
 
 stringify :: Expr.LiteralValue -> ByteString
 stringify = \case
@@ -159,6 +171,11 @@ stringify = \case
 execute :: Stmt.Stmt -> InterpeterM ()
 execute = \case
   Stmt.SExpression expression -> void $ evaluate expression
+  Stmt.SIf condition thenBranch elseBranch -> do
+    c <- isTruthy <$> evaluate condition
+    if c
+      then execute thenBranch
+      else traverse_ execute elseBranch
   Stmt.SPrint expression ->
     evaluate expression >>= \value -> liftIO $ BS.putStrLn (stringify value)
   Stmt.SVar name initializer -> do
@@ -166,6 +183,10 @@ execute = \case
       Nothing -> pure Expr.LNil
       Just v -> evaluate v
     State.modify' $ \st -> st {environment = define name.lexeme value st.environment}
+  Stmt.SWhile condition body -> do
+    whileM
+      (isTruthy <$> evaluate condition)
+      (execute body)
   Stmt.SBlock statements -> do
     executeBlock statements
     pure ()

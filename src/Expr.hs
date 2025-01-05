@@ -15,10 +15,7 @@ data Expr
     -- >   Expr -- left
     -- >   Token -- operator
     -- >   Expr -- right
-    EBinary
-      !Expr
-      !Token
-      !Expr
+    EBinary !Expr !Token !Expr
   | -- | > EGrouping
     -- >   Expr -- expression
     EGrouping
@@ -26,6 +23,11 @@ data Expr
   | -- | > ELiteral
     -- >   LiteralValue -- value
     ELiteral !LiteralValue
+  | -- | > ELogical
+    -- >   Expr -- left
+    -- >   Token -- operator
+    -- >   Expr -- right
+    ELogical !Expr !Token !Expr
   | -- | > EUnary
     -- >   Token -- operator
     -- >   Expr -- expression
@@ -33,10 +35,11 @@ data Expr
   | -- | > EVariable
     -- >   Token -- name
     EVariable !Token
+  deriving (Show)
 
 data LiteralValue
   = LNil
   | LBool !Bool
   | LString !ByteString
   | LNumber !Double
-  deriving (Eq)
+  deriving (Eq, Show)

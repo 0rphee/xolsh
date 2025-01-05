@@ -1,5 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Redundant <$>" #-}
 
 module Parser (runParse) where
 
@@ -73,12 +76,65 @@ declaration = do
 
 statement :: ParserM r Stmt.Stmt
 statement =
-  match [PRINT] >>= \case
-    True -> printStatement
-    False ->
-      match [LEFT_BRACE] >>= \case
-        True -> Stmt.SBlock <$> block
-        False -> expressionStatement
+  safePeek >>= \case
+    Just (Token FOR _ _) -> advance >> forStatement
+    Just (Token IF _ _) -> advance >> ifStatement
+    Just (Token PRINT _ _) -> advance >> printStatement
+    Just (Token WHILE _ _) -> advance >> whileStatement
+    Just (Token LEFT_BRACE _ _) -> advance >> (Stmt.SBlock <$> block)
+    _ -> expressionStatement
+
+forStatement :: ParserM r Stmt.Stmt
+forStatement = do
+  consume LEFT_PAREN "Expect '(' after 'for'."
+  initializer <-
+    safePeek >>= \case
+      Just (Token SEMICOLON _ _) -> advance >> pure Nothing
+      Just (Token VAR _ _) -> advance >> Just <$> varDeclaration
+      _ -> Just <$> expressionStatement
+  condition <-
+    not <$> check SEMICOLON >>= \case
+      True -> expression
+      -- if there's no condition, it's an infinite loop
+      False -> pure $ Expr.ELiteral $ LBool True
+  consume SEMICOLON "Expect ';' after loop condition."
+  increment <-
+    not <$> check RIGHT_PAREN >>= \case
+      True -> Just <$> expression
+      False -> pure Nothing
+  consume RIGHT_PAREN "Expect ')' after for clauses."
+  whileStmtBody <-
+    statement <&> \forStmtBody -> case increment of
+      -- if there's an increment in the 'for', add it to the end of the 'while' body
+      Just inc -> Stmt.SBlock [forStmtBody, Stmt.SExpression inc]
+      Nothing -> forStmtBody
+  -- while statement is built from the condition and the desugared for body & increment
+  let whileStmt = Stmt.SWhile condition whileStmtBody
+  -- finally, if there is an initializer (ex. 'for (var a = 1...)'), we prefix
+  -- it to the desugared while loop
+  let finishedForStmt = case initializer of
+        Just ini -> Stmt.SBlock [ini, whileStmt]
+        Nothing -> whileStmt
+  pure finishedForStmt
+
+whileStatement :: ParserM r Stmt.Stmt
+whileStatement = do
+  consume LEFT_PAREN "Expect '(' after 'while'."
+  condition <- expression
+  consume RIGHT_PAREN "Expect ')' after condition."
+  Stmt.SWhile condition <$> statement
+
+ifStatement :: ParserM r Stmt.Stmt
+ifStatement = do
+  consume LEFT_PAREN "Expect '(' after 'if'."
+  condition <- expression
+  consume RIGHT_PAREN "Expect ')' after if condition."
+  thenBranch <- statement
+  elseBranch <-
+    match [ELSE] >>= \case
+      True -> Just <$> statement
+      False -> pure Nothing
+  pure $ Stmt.SIf condition thenBranch elseBranch
 
 block :: ParserM r [Stmt.Stmt]
 block = (reverse <$> go []) <* consume RIGHT_BRACE "Expect '}' after block."
@@ -110,7 +166,7 @@ expression = assignment
 
 assignment :: ParserM r Expr
 assignment = do
-  expr <- equality
+  expr <- orP
   m <- match [EQUAL]
   if m
     then do
@@ -124,17 +180,23 @@ assignment = do
           pure expr
     else pure expr
 
+orP :: ParserM r Expr
+orP = andP >>= whileParseELogical andP [OR]
+
+andP :: ParserM r Expr
+andP = equality >>= whileParseELogical equality [AND]
+
 equality :: ParserM r Expr
-equality = comparison >>= whileParse comparison [BANG_EQUAL, EQUAL_EQUAL]
+equality = comparison >>= whileParseEBinary comparison [BANG_EQUAL, EQUAL_EQUAL]
 
 comparison :: ParserM r Expr
-comparison = term >>= whileParse term [GREATER, GREATER_EQUAL, LESS, LESS_EQUAL]
+comparison = term >>= whileParseEBinary term [GREATER, GREATER_EQUAL, LESS, LESS_EQUAL]
 
 term :: ParserM r Expr
-term = factor >>= whileParse factor [MINUS, PLUS]
+term = factor >>= whileParseEBinary factor [MINUS, PLUS]
 
 factor :: ParserM r Expr
-factor = unary >>= whileParse unary [SLASH, STAR]
+factor = unary >>= whileParseEBinary unary [SLASH, STAR]
 
 unary :: ParserM r Expr
 unary = do
@@ -162,23 +224,36 @@ primary = do
     _ -> do
       p <- peek
       getPError p "Expect expression." >>= throwError
-  where
-    safePeek :: ParserM r (Maybe Token)
-    safePeek = do
-      c <- not <$> isAtEnd
-      if c then Just <$> peek else pure Nothing
+
+safePeek :: ParserM r (Maybe Token)
+safePeek = do
+  c <- not <$> isAtEnd
+  if c then Just <$> peek else pure Nothing
 
 {-# INLINE whileParse #-}
-whileParse :: ParserM r Expr -> [TokenType] -> Expr -> ParserM r Expr
-whileParse inner matchlist eAccum = do
-  m <- match matchlist
-  if m
-    then do
-      operator <- previous
-      right <- inner
-      whileParse inner matchlist $ EBinary eAccum operator right
-    else
-      pure eAccum
+whileParse
+  :: (Expr -> Token -> Expr -> Expr)
+  -> ParserM r Expr
+  -> [TokenType]
+  -> Expr
+  -> ParserM r Expr
+whileParse constr = go
+  where
+    go inner matchlist eAccum = do
+      m <- match matchlist
+      if m
+        then do
+          operator <- previous
+          right <- inner
+          go inner matchlist $ constr eAccum operator right
+        else
+          pure eAccum
+
+whileParseEBinary :: ParserM r Expr -> [TokenType] -> Expr -> ParserM r Expr
+whileParseEBinary = whileParse EBinary
+
+whileParseELogical :: ParserM r Expr -> [TokenType] -> Expr -> ParserM r Expr
+whileParseELogical = whileParse ELogical
 
 synchronize :: ParserM r ()
 synchronize = advance >> go
