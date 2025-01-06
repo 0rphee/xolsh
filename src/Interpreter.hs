@@ -78,22 +78,22 @@ evaluate = \case
         TokenType.SLASH -> Expr.LNumber <$> commonIfNumber (/)
         TokenType.STAR -> Expr.LNumber <$> commonIfNumber (*)
         _ -> pure Expr.LNil -- marked as unreachable (section 7.2.5)
-  Expr.ECall callee paren arguments -> do
+  Expr.ECall callee paren argumentsExprs -> do
     calleeVal <- evaluate callee
-    argVals <- traverse evaluate arguments
+    argVals <- traverse evaluate argumentsExprs
     case calleeVal of
-      Expr.LCallable arity call _ -> do
-        when (arity /= V.length arguments) $
+      Expr.LCallable _toString params callable_call -> do
+        when (V.length params /= V.length argumentsExprs) $
           throwError $
             Error.RuntimeError
               paren
               ( "Expected "
-                  <> BS.pack (show arity)
+                  <> BS.pack (show $ V.length params)
                   <> " arguments but got "
-                  <> BS.pack (show $ V.length arguments)
+                  <> BS.pack (show $ V.length argumentsExprs)
                   <> "."
               )
-        call argVals
+        callable_call (call params) argVals
       _ -> throwError $ Error.RuntimeError paren "Can only call functions and classes."
   Expr.EVariable name -> get name
   Expr.EAssign name exprValue -> do
@@ -121,7 +121,7 @@ stringify = \case
           else str
   Expr.LBool v -> if v then "true" else "false"
   Expr.LString v -> v
-  Expr.LCallable _ _ toString -> toString
+  Expr.LCallable toString _ _ -> toString
 
 execute :: Stmt.Stmt -> InterpreterM ()
 execute = \case
@@ -156,27 +156,35 @@ execute = \case
     let function =
           Expr.LCallable
             { Expr.callable_toString = "<fn " <> name.lexeme <> ">"
-            , Expr.callable_arity = V.length params
-            , Expr.callable_call = \args -> do
-                -- environment of the function before being called
-                prevEnv <- State.gets (.environment)
-                -- local environment of the function with arguments paired with parameters
-                funcEnvironment <-
-                  V.zipWith (\tok -> (tok.lexeme,)) params args
-                    & V.toList
-                    & M.fromList
-                    & newIORef
-                    & liftIO
-                    <&> (`LocalEnvironment` closure)
-                -- if the function does not return via a return stmt, it will default to nil
-                catchError
-                  ( executeBlock body prevEnv funcEnvironment >> pure Expr.LNil
-                  )
-                  $ \case
-                    Error.RuntimeReturn value -> pure value
-                    e -> throwError e
+            , Expr.callable_params = params
+            , Expr.callable_call = \evaluator args -> evaluator closure body args
             }
     State.get >>= \st -> define name.lexeme function st.environment
+
+call
+  :: Vector TokenType.Token
+  -> Environment
+  -> Vector Stmt.Stmt
+  -> Vector Expr.LiteralValue
+  -> InterpreterM Expr.LiteralValue
+call params closure body args = do
+  -- environment of the function before being called
+  prevEnv <- State.gets (.environment)
+  -- local environment of the function with arguments paired with parameters
+  funcEnvironment <-
+    V.zipWith (\tok -> (tok.lexeme,)) params args
+      & V.toList
+      & M.fromList
+      & newIORef
+      & liftIO
+      <&> (`LocalEnvironment` closure)
+  -- if the function does not return via a return stmt, it will default to nil
+  catchError
+    ( executeBlock body prevEnv funcEnvironment >> pure Expr.LNil
+    )
+    $ \case
+      Error.RuntimeReturn value -> pure value
+      e -> throwError e
 
 executeBlock
   :: Vector Stmt.Stmt -> Environment -> Environment -> InterpreterM ()
@@ -205,8 +213,8 @@ interpret statements = do
           ( "clock"
           , Expr.LCallable
               { Expr.callable_toString = "<native fn>"
-              , Expr.callable_arity = 0
-              , Expr.callable_call = \_args ->
+              , Expr.callable_params = V.empty
+              , Expr.callable_call = \_evaluator _args ->
                   -- realToFrac & fromIntegral treat NominalDiffTime as seconds
                   Expr.LNumber . realToFrac <$> liftIO Time.getPOSIXTime
               }
@@ -214,4 +222,4 @@ interpret statements = do
         ]
 
 executeStmts :: Vector Stmt.Stmt -> InterpreterM ()
-executeStmts s = traverse_ execute s --  >> ((State.gets (.environment)) >>= liftIO . print)
+executeStmts = traverse_ execute

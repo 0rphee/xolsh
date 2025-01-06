@@ -2,7 +2,8 @@ module Expr (Expr (..), LiteralValue (..)) where
 
 import Data.ByteString.Char8 (ByteString)
 import Data.Vector (Vector)
-import Environment (InterpreterM)
+import Environment (Environment, InterpreterM)
+import Stmt qualified
 import TokenType (Token (..))
 
 data Expr
@@ -46,11 +47,16 @@ data LiteralValue
   | LString !ByteString
   | LNumber !Double
   | LCallable
-      { callable_arity :: Int
+      { callable_toString :: !ByteString
+      , callable_params :: !(Vector Token)
       , callable_call
-          :: Vector Expr.LiteralValue
+          :: ( Environment -- closure environment
+               -> Vector Stmt.Stmt -- body of lox function
+               -> Vector LiteralValue -- arguments
+               -> InterpreterM LiteralValue -- this function is ignored when calling native functions
+             )
+          -> Vector LiteralValue -- arguments
           -> InterpreterM LiteralValue
-      , callable_toString :: ByteString
       }
 
 instance Eq LiteralValue where

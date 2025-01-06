@@ -1,7 +1,7 @@
 module Stmt where
 
 import Data.Vector (Vector)
-import Expr qualified
+import {-# SOURCE #-} Expr qualified
 import TokenType qualified
 
 data Stmt
