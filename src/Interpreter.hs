@@ -6,7 +6,7 @@
 module Interpreter (evaluate, interpret) where
 
 import Control.Monad (void, when)
-import Control.Monad.Error.Class (catchError, tryError)
+import Control.Monad.Error.Class (catchError)
 import Control.Monad.Except (runExceptT, throwError)
 import Control.Monad.State.Strict
   ( MonadIO (..)
@@ -16,6 +16,9 @@ import Control.Monad.Trans.Except (finallyE)
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.Foldable (traverse_)
+import Data.Function ((&))
+import Data.Functor ((<&>))
+import Data.IORef (newIORef)
 import Data.Map.Strict qualified as M
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock.POSIX qualified as Time
@@ -137,59 +140,65 @@ execute = \case
     value <- case initializer of
       Nothing -> pure Expr.LNil
       Just v -> evaluate v
-    State.modify' $ \st -> st {environment = define name.lexeme value st.environment}
+    State.get >>= \st -> define name.lexeme value st.environment
   Stmt.SWhile condition body -> do
     whileM
       (isTruthy <$> evaluate condition)
       (execute body)
   Stmt.SBlock statements -> do
-    executeBlock statements (LocalEnvironment mempty)
+    newEnvValueMapRef <- liftIO $ newIORef mempty
+    prevEnv <- State.gets (.environment)
+    executeBlock statements prevEnv (LocalEnvironment newEnvValueMapRef prevEnv)
     pure ()
   Stmt.SFunction name params body -> do
+    -- environment of the function where it is declared
+    closure <- State.gets (.environment)
     let function =
           Expr.LCallable
             { Expr.callable_toString = "<fn " <> name.lexeme <> ">"
             , Expr.callable_arity = V.length params
             , Expr.callable_call = \args -> do
-                let environment =
-                      LocalEnvironment $
-                        M.fromList $
-                          V.toList $
-                            V.zipWith (\tok -> (tok.lexeme,)) params args
+                -- environment of the function before being called
+                prevEnv <- State.gets (.environment)
+                -- local environment of the function with arguments paired with parameters
+                funcEnvironment <-
+                  V.zipWith (\tok -> (tok.lexeme,)) params args
+                    & V.toList
+                    & M.fromList
+                    & newIORef
+                    & liftIO
+                    <&> (`LocalEnvironment` closure)
                 -- if the function does not return via a return stmt, it will default to nil
-                catchError (executeBlock body environment >> pure Expr.LNil) $ \case
-                  Error.RuntimeReturn value -> pure value
-                  e -> throwError e
+                catchError
+                  ( executeBlock body prevEnv funcEnvironment >> pure Expr.LNil
+                  )
+                  $ \case
+                    Error.RuntimeReturn value -> pure value
+                    e -> throwError e
             }
-    State.modify' $ \st -> st {environment = define name.lexeme function st.environment}
-    where
+    State.get >>= \st -> define name.lexeme function st.environment
 
 executeBlock
-  :: Vector Stmt.Stmt -> (Environment -> Environment) -> InterpreterM ()
-executeBlock statements newEnvConstr = do
+  :: Vector Stmt.Stmt -> Environment -> Environment -> InterpreterM ()
+executeBlock statements prevEnv tempEnv = do
   State.modify' $ \st ->
-    st
-      { environment = newEnvConstr st.environment
-      }
+    st {environment = tempEnv}
   finallyE (executeStmts statements) $ do
-    State.modify' $ \st ->
-      let enc = case st.environment of
-            GlobalEnvironment _ -> error "impossible" -- TODO how to remove this? GADTS
-            LocalEnvironment _ e -> e
-       in st {environment = enc}
+    State.modify' $ \st -> st {environment = prevEnv}
 
 interpret :: Vector Stmt.Stmt -> IO Error.ErrorPresent
 interpret statements = do
+  globalsRef <- newIORef globals
+  let initialInterpreterState =
+        InterpreterState
+          { environment = GlobalEnvironment {values = globalsRef}
+          }
   value <-
     State.evalStateT (runExceptT $ executeStmts statements) initialInterpreterState
   case value of
     Left e -> Error.reportRuntimeError e >> pure Error.Error
     Right () -> pure Error.NoError
   where
-    initialInterpreterState =
-      InterpreterState
-        { environment = GlobalEnvironment {values = globals}
-        }
     globals =
       M.fromList
         [
@@ -205,4 +214,4 @@ interpret statements = do
         ]
 
 executeStmts :: Vector Stmt.Stmt -> InterpreterM ()
-executeStmts = traverse_ execute
+executeStmts s = traverse_ execute s --  >> ((State.gets (.environment)) >>= liftIO . print)

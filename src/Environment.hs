@@ -1,11 +1,14 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module Environment where
 
 import Control.Monad.Except (ExceptT, MonadError (..))
+import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.State.Class qualified as State
 import Control.Monad.State.Strict (StateT)
 import Data.ByteString.Char8 (ByteString)
+import Data.IORef
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Error qualified
@@ -26,57 +29,61 @@ type InterpreterM a =
 --- module Environment where
 
 data Environment
-  = GlobalEnvironment
-      {values :: Map ByteString Expr.LiteralValue}
+  = GlobalEnvironment {values :: IORef (Map ByteString Expr.LiteralValue)}
   | LocalEnvironment
-      { values :: Map ByteString Expr.LiteralValue
-      , _enclosing :: Environment -- DO NOT USE
+      { values :: IORef (Map ByteString Expr.LiteralValue)
+      , _enclosing :: Environment
       }
+  deriving (Show)
+
+instance Show (IORef (Map byteString Expr.LiteralValue)) where
+  show _ = "iorefmap"
 
 {-# INLINEABLE define #-}
-define :: ByteString -> Expr.LiteralValue -> Environment -> Environment
-define name value environment =
-  environment {values = M.insert name value environment.values}
+define
+  :: ByteString -> Expr.LiteralValue -> Environment -> InterpreterM ()
+define name value environment = do
+  liftIO $ modifyIORef' environment.values $ \valueMap -> M.insert name value valueMap
 
 {-# INLINEABLE get #-}
 get :: TokenType.Token -> InterpreterM Expr.LiteralValue
 get name = do
   state <- State.get
-  case envget state.environment of
+  envget state.environment >>= \case
     Just v -> pure v
     Nothing ->
       throwError $
         Error.RuntimeError name ("Undefined variable '" <> name.lexeme <> "'.")
   where
-    envget :: Environment -> Maybe Expr.LiteralValue
+    envget :: Environment -> InterpreterM (Maybe Expr.LiteralValue)
     envget env =
-      case env.values M.!? name.lexeme of
-        Nothing ->
-          case env of
-            LocalEnvironment _ enc -> envget enc
-            _ -> Nothing
-        v -> v
+      liftIO (readIORef env.values) >>= \valueMap ->
+        case valueMap M.!? name.lexeme of
+          Nothing ->
+            case env of
+              LocalEnvironment _ enc -> envget enc
+              _ -> pure Nothing
+          v -> pure v
 
 {-# INLINEABLE assign #-}
 assign :: TokenType.Token -> Expr.LiteralValue -> InterpreterM ()
 assign name value = do
   -- there's no implicit variable declaration like in python
   state <- State.get
-  case envassign state.environment of
-    Just newEnv ->
-      -- we update the interpreter state
-      State.put $ state {environment = newEnv}
-    Nothing ->
+  envassign state.environment >>= \case
+    True -> pure ()
+    False ->
       throwError $
         Error.RuntimeError name ("Undefined variable '" <> name.lexeme <> "'.")
   where
-    envassign :: Environment -> Maybe Environment
-    envassign env =
-      if M.member name.lexeme env.values
-        then Just $ define name.lexeme value env
-        else case env of
-          GlobalEnvironment _ -> Nothing
-          LocalEnvironment values enclosing ->
-            LocalEnvironment values <$> envassign enclosing
+    -- True if successful assignment, False otherwise
+    envassign :: Environment -> InterpreterM Bool
+    envassign env = do
+      liftIO (readIORef env.values) >>= \vals ->
+        if M.member name.lexeme vals
+          then define name.lexeme value env >> pure True
+          else case env of
+            GlobalEnvironment _ -> pure False
+            LocalEnvironment _ enclosing -> envassign enclosing
 
 ----------------------------------
