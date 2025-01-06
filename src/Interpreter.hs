@@ -32,7 +32,7 @@ import Stmt qualified
 import TokenType qualified
 
 {-# SPECIALIZE whileM ::
-  InterpreterM Bool -> InterpreterM Bool -> InterpreterM ()
+  InterpreterM Bool -> InterpreterM a -> InterpreterM ()
   #-}
 
 evaluate :: Expr.Expr -> InterpreterM Expr.LiteralValue

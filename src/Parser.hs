@@ -22,7 +22,7 @@ import VectorBuilder.Vector qualified as VB
 
 data Parser = Parser
   { current :: !Int
-  , tokens :: ![Token]
+  , tokens :: !(Vector Token)
   }
   deriving (Show)
 
@@ -39,7 +39,7 @@ type ParserM r a =
 
 data ParseException = ParseException
 
-runParse :: [Token] -> IO (Maybe (Vector Stmt.Stmt), Error.ErrorPresent)
+runParse :: Vector Token -> IO (Maybe (Vector Stmt.Stmt), Error.ErrorPresent)
 runParse tokens = do
   (r, w) <- (evalRWST . runExceptT) parse () initialParserState
   pure (either (const Nothing) Just r, w)
@@ -393,8 +393,9 @@ advance = do
 isAtEnd :: ParserM r Bool
 isAtEnd = (\t -> t.ttype == EOF) <$> peek
 
+-- TODO: unsafeIndex ?
 peek :: ParserM r Token
-peek = get <&> \pr -> pr.tokens !! pr.current
+peek = get <&> \pr -> pr.tokens V.! pr.current
 
 previous :: ParserM r Token
-previous = get <&> \pr -> pr.tokens !! (pr.current - 1)
+previous = get <&> \pr -> pr.tokens V.! (pr.current - 1)

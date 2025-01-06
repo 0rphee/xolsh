@@ -10,17 +10,19 @@ import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.Char (isAlpha, isDigit)
 import Data.Functor ((<&>))
+import Data.Vector (Vector)
 import Error qualified
 import TokenType (Token (..), TokenType (..))
+import VectorBuilder.Builder as VB
+import VectorBuilder.Vector as VB
 
 data Scanner = Scanner
   { source :: !ByteString
-  , tokens :: ![Token]
+  , tokens :: !(VB.Builder Token)
   , start :: !Int
   , current :: !Int
   , line :: !Int
   }
-  deriving (Show)
 
 type ScanM r a = RWST r Error.ErrorPresent Scanner IO a
 
@@ -33,7 +35,7 @@ myIsAlpha c = isAlpha c || c == '_'
 myIsAlphaNum :: Char -> Bool
 myIsAlphaNum c = myIsAlpha c || isDigit c
 
-scanTokens :: ByteString -> IO ([Token], Error.ErrorPresent)
+scanTokens :: ByteString -> IO (Vector Token, Error.ErrorPresent)
 scanTokens source = (\act -> evalRWST act () initialScanner) $ do
   whileM
     (not <$> isAtEnd)
@@ -44,16 +46,17 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
   modify' $ \sc ->
     sc
       { tokens =
-          Token {ttype = EOF, lexeme = "", tline = sc.line}
-            : sc.tokens
+          sc.tokens
+            <> VB.singleton
+              (Token {ttype = EOF, lexeme = "", tline = sc.line})
       }
 
-  get <&> (reverse . (.tokens))
+  get <&> (VB.build . (.tokens))
   where
     initialScanner =
       Scanner
         { source = source
-        , tokens = []
+        , tokens = VB.empty
         , start = 0
         , current = 0
         , line = 1
@@ -120,7 +123,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
     addToken2 ttype = modify' $ \sc ->
       -- substring
       let text = substring sc.source sc.start sc.current
-       in sc {tokens = Token ttype text sc.line : sc.tokens}
+       in sc {tokens = sc.tokens <> VB.singleton (Token ttype text sc.line)}
     match :: forall r. Char -> ScanM r Bool
     match expected = do
       e <- isAtEnd
