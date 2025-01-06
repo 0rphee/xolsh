@@ -6,15 +6,19 @@
 
 module Parser (runParse) where
 
-import Control.Monad (when)
+import Control.Monad (void, when)
 import Control.Monad.Except
 import Control.Monad.RWS.Strict
 import Data.ByteString.Char8 (ByteString)
 import Data.Functor ((<&>))
+import Data.Vector (Vector)
+import Data.Vector qualified as V
 import Error qualified
 import Expr
 import Stmt qualified
 import TokenType (Token (..), TokenType (..))
+import VectorBuilder.Builder qualified as VB
+import VectorBuilder.Vector qualified as VB
 
 data Parser = Parser
   { current :: !Int
@@ -35,15 +39,15 @@ type ParserM r a =
 
 data ParseException = ParseException
 
-runParse :: [Token] -> IO (Maybe [Stmt.Stmt], Error.ErrorPresent)
+runParse :: [Token] -> IO (Maybe (Vector Stmt.Stmt), Error.ErrorPresent)
 runParse tokens = do
   (r, w) <- (evalRWST . runExceptT) parse () initialParserState
   pure (either (const Nothing) Just r, w)
   where
     initialParserState = Parser {current = 0, tokens = tokens}
 
-parse :: ParserM r [Stmt.Stmt]
-parse = reverse <$> go []
+parse :: ParserM r (Vector Stmt.Stmt)
+parse = go VB.empty
   where
     go accum = do
       e <- not <$> isAtEnd
@@ -51,9 +55,9 @@ parse = reverse <$> go []
         then do
           next <- declaration
           case next of
-            Just n -> go (n : accum)
+            Just n -> go (accum <> VB.singleton n)
             Nothing -> go accum
-        else pure accum
+        else pure $ VB.build accum
 
 varDeclaration :: ParserM r Stmt.Stmt
 varDeclaration = do
@@ -66,13 +70,37 @@ varDeclaration = do
 declaration :: ParserM r (Maybe Stmt.Stmt)
 declaration = do
   e <- tryError $ do
-    m <- match [VAR]
-    if m
-      then varDeclaration
-      else statement
+    safePeek >>= \case
+      Just (Token FUN _ _) -> advance >> function "function"
+      Just (Token VAR _ _) -> advance >> varDeclaration
+      _ -> statement
   case e of
     Left _ -> synchronize >> pure Nothing
     Right v -> pure $ Just v
+
+{-# INLINE function #-}
+function :: ByteString -> ParserM r Stmt.Stmt
+function kind = do
+  name <- consume IDENTIFIER $ "Expect " <> kind <> " name."
+  consume LEFT_PAREN $ "Expect '(' after " <> kind <> " name."
+  parameters <-
+    not <$> check RIGHT_PAREN >>= \case
+      -- if we haven't found yet a RIGHT_PAREN (ex. 'fun name(1, arg1)')
+      True -> getParams VB.empty
+      -- if we have found a RIGHT_PAREN (ex. 'fun name()')
+      False -> pure V.empty
+  consume RIGHT_PAREN "Expect ')' after parameters."
+  consume LEFT_BRACE $ "Expect '{' before " <> kind <> " body."
+  Stmt.SFunction name parameters <$> block
+  where
+    getParams :: VB.Builder Token -> ParserM r (Vector Token)
+    getParams accum = do
+      when (VB.size accum >= 255) $ do
+        peek >>= \tok -> void $ getAndReportParserError tok "Can't have more than 255 parameters."
+      nextParamName <- consume IDENTIFIER "Expect parameter name."
+      match [COMMA] >>= \case
+        True -> getParams (accum <> VB.singleton nextParamName)
+        False -> pure $ VB.build (accum <> VB.singleton nextParamName)
 
 statement :: ParserM r Stmt.Stmt
 statement =
@@ -80,9 +108,21 @@ statement =
     Just (Token FOR _ _) -> advance >> forStatement
     Just (Token IF _ _) -> advance >> ifStatement
     Just (Token PRINT _ _) -> advance >> printStatement
+    Just (Token RETURN _ _) -> advance >> returnStatement
     Just (Token WHILE _ _) -> advance >> whileStatement
     Just (Token LEFT_BRACE _ _) -> advance >> (Stmt.SBlock <$> block)
     _ -> expressionStatement
+
+returnStatement :: ParserM r Stmt.Stmt
+returnStatement = do
+  keyword <- previous
+  value <-
+    not <$> check SEMICOLON >>= \case
+      -- if we do not find a semicolon immediately, there is an expression
+      True -> Just <$> expression
+      False -> pure Nothing
+  consume SEMICOLON "Expect ';' after return value."
+  pure $ Stmt.SReturn keyword value
 
 forStatement :: ParserM r Stmt.Stmt
 forStatement = do
@@ -106,14 +146,14 @@ forStatement = do
   whileStmtBody <-
     statement <&> \forStmtBody -> case increment of
       -- if there's an increment in the 'for', add it to the end of the 'while' body
-      Just inc -> Stmt.SBlock [forStmtBody, Stmt.SExpression inc]
+      Just inc -> Stmt.SBlock $ V.fromList [forStmtBody, Stmt.SExpression inc]
       Nothing -> forStmtBody
   -- while statement is built from the condition and the desugared for body & increment
   let whileStmt = Stmt.SWhile condition whileStmtBody
   -- finally, if there is an initializer (ex. 'for (var a = 1...)'), we prefix
   -- it to the desugared while loop
   let finishedForStmt = case initializer of
-        Just ini -> Stmt.SBlock [ini, whileStmt]
+        Just ini -> Stmt.SBlock $ V.fromList [ini, whileStmt]
         Nothing -> whileStmt
   pure finishedForStmt
 
@@ -136,8 +176,8 @@ ifStatement = do
       False -> pure Nothing
   pure $ Stmt.SIf condition thenBranch elseBranch
 
-block :: ParserM r [Stmt.Stmt]
-block = (reverse <$> go []) <* consume RIGHT_BRACE "Expect '}' after block."
+block :: ParserM r (Vector Stmt.Stmt)
+block = go VB.empty <* consume RIGHT_BRACE "Expect '}' after block."
   where
     go accum = do
       cond <- liftA2 (&&) (not <$> check RIGHT_BRACE) (not <$> isAtEnd)
@@ -145,9 +185,9 @@ block = (reverse <$> go []) <* consume RIGHT_BRACE "Expect '}' after block."
         then do
           next <- declaration
           case next of
-            Just n -> go (n : accum)
+            Just n -> go (accum <> VB.singleton n)
             Nothing -> go accum
-        else pure accum
+        else pure (VB.build accum)
 
 printStatement :: ParserM r Stmt.Stmt
 printStatement = do
@@ -176,7 +216,7 @@ assignment = do
         Expr.EVariable name -> pure $ Expr.EAssign name value
         _ -> do
           -- the error is reported, but does not need to synchronize, hence why there's no `throwError`
-          getPError equals "Invalid assignment target."
+          getAndReportParserError equals "Invalid assignment target."
           pure expr
     else pure expr
 
@@ -204,7 +244,40 @@ unary = do
     if m
       then liftA2 EUnary previous unary
       else
-        primary
+        call
+
+call :: ParserM r Expr
+call = do
+  expr <- primary
+  whileTrue expr
+  where
+    whileTrue :: Expr -> ParserM r Expr
+    whileTrue prev = do
+      safePeek >>= \case
+        -- if we find a LEFT_PAREN after a primary expr, this is a function call
+        Just (Token LEFT_PAREN _ _) ->
+          advance >> finishCall prev >>= whileTrue
+        _ ->
+          pure prev
+    finishCall :: Expr -> ParserM r Expr
+    finishCall callee = do
+      arguments <-
+        not <$> check RIGHT_PAREN >>= \case
+          -- if we have'nt found yet a RIGHT_PAREN
+          True -> getArgs 0 VB.empty
+          -- if we have found a RIGHT_PAREN
+          False -> pure V.empty
+      paren <- consume RIGHT_PAREN "Expect ')' after arguments."
+      pure $ ECall callee paren arguments
+      where
+        getArgs :: Int -> VB.Builder Expr -> ParserM r (Vector Expr)
+        getArgs argCount accum = do
+          when (argCount >= 255) $ do
+            peek >>= \tok -> void $ getAndReportParserError tok "Can't have more than 255 arguments."
+          nextArg <- expression
+          match [COMMA] >>= \case
+            True -> getArgs (argCount + 1) (accum <> VB.singleton nextArg)
+            False -> pure $ VB.build (accum <> VB.singleton nextArg)
 
 primary :: ParserM r Expr
 primary = do
@@ -223,7 +296,7 @@ primary = do
         pure $ EGrouping expr
     _ -> do
       p <- peek
-      getPError p "Expect expression." >>= throwError
+      getAndReportParserError p "Expect expression." >>= throwError
 
 safePeek :: ParserM r (Maybe Token)
 safePeek = do
@@ -286,10 +359,10 @@ consume ttype message =
     if c
       then advance
       else
-        peek >>= (`getPError` message) >>= throwError
+        peek >>= (`getAndReportParserError` message) >>= throwError
 
-getPError :: Token -> ByteString -> ParserM r ParseException
-getPError token message = do
+getAndReportParserError :: Token -> ByteString -> ParserM r ParseException
+getAndReportParserError token message = do
   Error.parseError token message
   pure ParseException
 

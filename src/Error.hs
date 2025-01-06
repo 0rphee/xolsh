@@ -5,13 +5,14 @@ module Error
   , parseError
   , reportRuntimeError
   , ErrorPresent (..)
-  , RuntimeError (..)
+  , RuntimeException (..)
   )
 where
 
 import Control.Monad.IO.Class
 import Control.Monad.RWS.Class
 import Data.ByteString.Char8 as BS
+import {-# SOURCE #-} Expr qualified
 import System.IO (stderr)
 import TokenType (Token (..), TokenType (..))
 
@@ -40,10 +41,11 @@ parseError token message =
     then report token.tline " at end" message
     else report token.tline (" at '" <> token.lexeme <> "'") message
 
-data RuntimeError
+data RuntimeException
   = RuntimeError {token :: TokenType.Token, message :: BS.ByteString}
+  | RuntimeReturn {value :: Expr.LiteralValue}
 
-reportRuntimeError :: MonadIO m => RuntimeError -> m ()
+reportRuntimeError :: MonadIO m => RuntimeException -> m ()
 reportRuntimeError rerror =
   liftIO $
     putStrLnStderr $
