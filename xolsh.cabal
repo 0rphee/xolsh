@@ -63,11 +63,13 @@ library
     TokenType
 
   build-depends:
+    -- Control.Monad.RWS.CPS available until 2.3.0 (mtl)
+    -- Control.Monad.Trans.Except.finallyE available until 0.6.0.0 (transformers)
     bytestring,
     containers,
-    mtl,
+    mtl >=2.3.1,
     time,
-    transformers,
+    transformers >=0.6.0.0,
     vector,
     vector-builder,
 

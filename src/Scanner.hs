@@ -6,6 +6,10 @@ module Scanner where
 
 import Control.Monad (when)
 import Control.Monad.RWS.CPS
+  ( RWST
+  , evalRWST
+  )
+import Control.Monad.State.Class (MonadState (get, put), modify')
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.Char (isAlpha, isDigit)
@@ -110,7 +114,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
             | myIsAlpha c -> identifier
             | otherwise -> do
                 sc <- get
-                Error.scanError sc.line "Unexpected character"
+                Error.scanError sc.line "Unexpected character."
     advance :: forall r. ScanM r Char
     advance = do
       oldScanner <- get
@@ -151,7 +155,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
         )
         ( do
             c <- peek
-            when ('\n' /= c) $ modify' $ \sc -> sc {line = sc.line + 1}
+            when ('\n' == c) $ modify' $ \sc -> sc {line = sc.line + 1}
             advance
         )
       e <- isAtEnd

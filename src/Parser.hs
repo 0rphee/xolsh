@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
@@ -6,9 +7,21 @@
 
 module Parser (runParse) where
 
+#if __GLASGOW_HASKELL__ < 906
+import Control.Applicative (liftA2) -- for GHC versions lower than 9.6
+#endif
 import Control.Monad (void, when)
 import Control.Monad.Except
-import Control.Monad.RWS.Strict
+  ( ExceptT
+  , MonadError (throwError)
+  , runExceptT
+  , tryError
+  )
+import Control.Monad.RWS.CPS
+  ( RWST
+  , evalRWST
+  )
+import Control.Monad.State.Class (MonadState (get), modify')
 import Data.ByteString.Char8 (ByteString)
 import Data.Functor ((<&>))
 import Data.Vector (Vector)

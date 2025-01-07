@@ -65,5 +65,5 @@ instance Eq LiteralValue where
     (LBool x, LBool y) -> x == y
     (LString x, LString y) -> x == y
     -- Lox considers NaN equal to NaN, contrary to what (==) does (7.2.5)
-    (Expr.LNumber vl, Expr.LNumber vr) | isNaN vl && isNaN vr -> True
+    (Expr.LNumber x, Expr.LNumber y) -> if isNaN x then isNaN y else x == y
     _ -> False
