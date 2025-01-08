@@ -11,6 +11,7 @@ import Data.Foldable (traverse_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Vector (Vector)
+import Data.Vector qualified as V
 import Error qualified
 import Expr qualified
 import Stmt qualified
@@ -19,6 +20,7 @@ import TokenType qualified
 data FunctionType
   = None
   | Function
+  | Method
   deriving (Eq)
 
 data ResolverState = ResolverState
@@ -46,15 +48,26 @@ resolveStmt = \case
     newStmts <- traverse resolveStmt stmts
     endScope
     pure $ Stmt.SBlock newStmts
+  Stmt.SClass name _methods -> do
+    declare name
+    define name
+    nMethods <-
+      traverse
+        ( \(Stmt.FFunctionH fname params body) -> do
+            nBody <- resolveFunction params body Method
+            pure $ Stmt.FFunctionH fname params nBody
+        )
+        _methods
+    pure $ Stmt.SClass name nMethods
   Stmt.SVar name initializer -> do
     declare name
     nInitializer <- traverse resolveExpr initializer
     define name
     pure $ Stmt.SVar name nInitializer
-  Stmt.SFunction name params body -> do
+  Stmt.SFunction (Stmt.FFunctionH name params body) -> do
     declare name >> define name
     nBody <- resolveFunction params body Function
-    pure $ Stmt.SFunction name params nBody
+    pure $ Stmt.SFunction $ Stmt.FFunctionH name params nBody
   Stmt.SExpression expr -> Stmt.SExpression <$> resolveExpr expr
   Stmt.SIf cond thenBody elseBody -> do
     nCond <- resolveExpr cond
@@ -88,7 +101,7 @@ resolveFunction params body funType = do
 
 resolveExpr :: Expr.Expr1 -> ResolverM Expr.Expr2
 resolveExpr = \case
-  (Expr.EVariable name _) -> do
+  Expr.EVariable name _ -> do
     State.gets (.scopes) >>= \case
       [] -> pure ()
       (closestScope : _) ->
@@ -99,7 +112,7 @@ resolveExpr = \case
           _ -> pure ()
     distance <- resolveLocal name.lexeme
     pure $ Expr.EVariable name distance
-  (Expr.EAssign name value _) -> do
+  Expr.EAssign name value _ -> do
     nValue <- resolveExpr value
     distance <- resolveLocal name.lexeme
     pure $ Expr.EAssign name nValue distance
@@ -111,12 +124,19 @@ resolveExpr = \case
     nCallee <- resolveExpr callee
     nArgs <- traverse resolveExpr args
     pure $ Expr.ECall nCallee t nArgs
+  Expr.EGet object name -> do
+    nObject <- resolveExpr object
+    pure $ Expr.EGet nObject name
   Expr.EGrouping expr -> Expr.EGrouping <$> resolveExpr expr
   Expr.ELiteral l -> pure $ Expr.ELiteral l
   Expr.ELogical left t right -> do
     nL <- resolveExpr left
     nR <- resolveExpr right
     pure $ Expr.ELogical nL t nR
+  Expr.ESet object name value -> do
+    nValue <- resolveExpr value
+    nObject <- resolveExpr object
+    pure $ Expr.ESet nObject name nValue
   Expr.EUnary t expr -> Expr.EUnary t <$> resolveExpr expr
 
 beginScope :: ResolverM ()

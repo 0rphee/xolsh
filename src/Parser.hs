@@ -80,19 +80,43 @@ varDeclaration = do
   consume SEMICOLON "Expect ';' after variable declaration."
   pure $ Stmt.SVar name initializer
 
+{-# INLINE declaration #-}
 declaration :: ParserM r (Maybe Stmt.Stmt1)
 declaration = do
   e <- tryError $ do
     safePeek >>= \case
-      Just (Token FUN _ _) -> advance >> function "function"
+      Just (Token CLASS _ _) -> advance >> classDeclaration
+      Just (Token FUN _ _) -> advance >> functionDeclaration
       Just (Token VAR _ _) -> advance >> varDeclaration
       _ -> statement
   case e of
     Left _ -> synchronize >> pure Nothing
     Right v -> pure $ Just v
 
-{-# INLINE function #-}
-function :: ByteString -> ParserM r Stmt.Stmt1
+{-# INLINE classDeclaration #-}
+classDeclaration :: ParserM r Stmt.Stmt1
+classDeclaration = do
+  name <- consume IDENTIFIER "Expect class name."
+  consume LEFT_BRACE "Expect '{' before class body.."
+  methods <- getMethods VB.empty
+  consume RIGHT_BRACE "Expect '}' after class body."
+  pure $ Stmt.SClass name methods
+  where
+    getMethods :: VB.Builder Stmt.FunctionH1 -> ParserM r (Vector Stmt.FunctionH1)
+    getMethods accum = do
+      not <$> check RIGHT_BRACE >>= \case
+        -- if we havent found RIGHT_BRACE, we try parsing class methods
+        True -> do
+          nextMethod <- function "method"
+          getMethods (accum <> VB.singleton nextMethod)
+        False -> pure $ VB.build accum
+
+{-# INLINE functionDeclaration #-}
+functionDeclaration :: ParserM r Stmt.Stmt1
+functionDeclaration = Stmt.SFunction <$> function "function"
+
+{-# INLINEABLE function #-}
+function :: ByteString -> ParserM r Stmt.FunctionH1
 function kind = do
   name <- consume IDENTIFIER $ "Expect " <> kind <> " name."
   consume LEFT_PAREN $ "Expect '(' after " <> kind <> " name."
@@ -104,7 +128,7 @@ function kind = do
       False -> pure V.empty
   consume RIGHT_PAREN "Expect ')' after parameters."
   consume LEFT_BRACE $ "Expect '{' before " <> kind <> " body."
-  Stmt.SFunction name parameters <$> block
+  Stmt.FFunctionH name parameters <$> block
   where
     getParams :: VB.Builder Token -> ParserM r (Vector Token)
     getParams accum = do
@@ -227,6 +251,7 @@ assignment = do
       value <- assignment
       case expr of
         Expr.EVariable name _ -> pure $ Expr.EAssign name value ()
+        Expr.EGet object name -> pure $ Expr.ESet object name value
         _ -> do
           -- the error is reported, but does not need to synchronize, hence why there's no `throwError`
           getAndReportParserError equals "Invalid assignment target."
@@ -270,6 +295,10 @@ call = do
         -- if we find a LEFT_PAREN after a primary expr, this is a function call
         Just (Token LEFT_PAREN _ _) ->
           advance >> finishCall prev >>= whileTrue
+        Just (Token DOT _ _) -> do
+          advance
+          name <- consume IDENTIFIER "Expect property name after '.'."
+          whileTrue $ EGet prev name
         _ ->
           pure prev
     finishCall :: Expr1 -> ParserM r Expr1

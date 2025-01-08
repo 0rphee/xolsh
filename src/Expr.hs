@@ -1,9 +1,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Expr (IPhase (..), Expr (..), LiteralValue (..), Expr1, Expr2) where
+module Expr (IPhase (..), Expr (..), LiteralValue (..), Expr1, Expr2, Callable (..)) where
 
 import Data.ByteString.Char8 (ByteString)
+import Data.IORef (IORef)
+import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 import Environment (Environment, InterpreterM)
 import Stmt qualified
@@ -34,6 +36,10 @@ data Expr (phase :: IPhase)
     -- >   Token  -- paren
     -- >   [(Expr phase)] -- arguments
     ECall !(Expr phase) !Token !(Vector (Expr phase))
+  | -- | > EGet
+    -- >   Expr phase -- object
+    -- >   Token -- name
+    EGet !(Expr phase) !Token
   | -- | > EGrouping
     -- >   (Expr phase)-- expression
     EGrouping
@@ -46,6 +52,11 @@ data Expr (phase :: IPhase)
     -- >   Token -- operator
     -- >   (Expr phase)-- right
     ELogical !(Expr phase) !Token !(Expr phase)
+  | -- | > ESet
+    -- >   Expr phase -- object
+    -- >   Token -- name
+    -- >   Expr phase -- value
+    ESet !(Expr phase) !Token !(Expr phase)
   | -- | > EUnary
     -- >   Token -- operator
     -- >   (Expr phase)-- expression
@@ -54,12 +65,8 @@ data Expr (phase :: IPhase)
     -- >   Token -- name
     EVariable !Token !(XEnvDistance phase)
 
-data LiteralValue
-  = LNil
-  | LBool !Bool
-  | LString !ByteString
-  | LNumber !Double
-  | LCallable
+data Callable
+  = CFunction
       { callable_toString :: !ByteString
       , callable_params :: !(Vector Token)
       , callable_call
@@ -70,6 +77,32 @@ data LiteralValue
              )
           -> Vector LiteralValue -- arguments
           -> InterpreterM LiteralValue
+      }
+  | CClass
+      -- TODO ?arity?
+      { callable_toString :: !ByteString
+      , callable_params :: !(Vector Token)
+      , callable_call
+          :: ( Environment -- closure environment
+               -> Vector Stmt.Stmt2 -- body of lox function
+               -> Vector LiteralValue -- arguments
+               -> InterpreterM LiteralValue -- this function is ignored when calling native functions
+             )
+          -> Vector LiteralValue -- arguments
+          -> InterpreterM LiteralValue
+      , class_methods :: !(IORef (Map ByteString Callable))
+      }
+
+data LiteralValue
+  = LNil
+  | LBool !Bool
+  | LString !ByteString
+  | LNumber !Double
+  | LCallable Callable
+  | LInstance
+      { _LInstanceFields :: IORef (Map ByteString LiteralValue)
+      , _LInstanceClassName :: ByteString
+      , _LInstanceMethods :: IORef (Map ByteString Callable)
       }
 
 instance Eq LiteralValue where

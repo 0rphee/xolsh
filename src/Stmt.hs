@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 
-module Stmt where
+module Stmt (Stmt1, Stmt2, Stmt (..), FunctionH (..), FunctionH1, FunctionH2) where
 
 import Data.Vector (Vector)
 import {-# SOURCE #-} Expr qualified
@@ -12,23 +12,25 @@ type Stmt2 = Stmt Expr.PH2
 
 data Stmt (phase :: Expr.IPhase)
   = -- | > SBlock
-    -- >   [Stmt] -- statements
+    -- >   [Stmt phase] -- statements
     SBlock !(Vector (Stmt phase))
+  | -- | > SClass
+    -- >   Token -- name
+    -- >   Vector (FunctionH phase) -- methods
+    SClass !TokenType.Token !(Vector (FunctionH phase))
   | -- | > SExpression
-    -- >   Expr -- expression
+    -- >   Expr phase -- expression
     SExpression !(Expr.Expr phase)
   | -- | > SFunction
-    -- >   Token          -- name
-    -- >   (Vector Token) -- params
-    -- >   (Vector (Stmt phase))  -- body
-    SFunction !TokenType.Token !(Vector TokenType.Token) !(Vector (Stmt phase))
+    -- >   FunctionH phase
+    SFunction !(FunctionH phase)
   | -- | > SIf
-    -- >   Expr -- condition
+    -- >   Expr phase -- condition
     -- >   (Stmt phase) -- thenBranch
     -- >   Maybe (Stmt phase) -- elseBranch
     SIf !(Expr.Expr phase) !(Stmt phase) !(Maybe (Stmt phase))
   | -- | > SPrint
-    -- >   Expr -- expression
+    -- >   Expr phase -- expression
     SPrint !(Expr.Expr phase)
   | -- | > SReturn
     -- >   TokenType.Token   -- keyword
@@ -36,9 +38,20 @@ data Stmt (phase :: Expr.IPhase)
     SReturn !TokenType.Token !(Maybe (Expr.Expr phase))
   | -- | > SVar
     -- >   Token -- name
-    -- >   Maybe Expr  -- initializer
+    -- >   Maybe (Expr phase) -- initializer
     SVar !TokenType.Token !(Maybe (Expr.Expr phase))
   | -- | > SWhile
-    -- >   Expr -- condition
+    -- >   Expr phase -- condition
     -- >   (Stmt phase) -- body
     SWhile !(Expr.Expr phase) (Stmt phase)
+
+type FunctionH1 = FunctionH Expr.PH1
+
+type FunctionH2 = FunctionH Expr.PH2
+
+data FunctionH (phase :: Expr.IPhase)
+  = -- | > FFunctionH
+    -- >   Token          -- name
+    -- >   (Vector Token) -- params
+    -- >   (Vector (Stmt phase))  -- body
+    FFunctionH !TokenType.Token !(Vector TokenType.Token) !(Vector (Stmt phase))
