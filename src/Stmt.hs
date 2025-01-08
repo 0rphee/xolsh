@@ -1,38 +1,44 @@
+{-# LANGUAGE DataKinds #-}
+
 module Stmt where
 
 import Data.Vector (Vector)
 import {-# SOURCE #-} Expr qualified
 import TokenType qualified
 
-data Stmt
+type Stmt1 = Stmt Expr.PH1
+
+type Stmt2 = Stmt Expr.PH2
+
+data Stmt (phase :: Expr.IPhase)
   = -- | > SBlock
     -- >   [Stmt] -- statements
-    SBlock !(Vector Stmt)
+    SBlock !(Vector (Stmt phase))
   | -- | > SExpression
     -- >   Expr -- expression
-    SExpression !Expr.Expr
+    SExpression !(Expr.Expr phase)
   | -- | > SFunction
     -- >   Token          -- name
     -- >   (Vector Token) -- params
-    -- >   (Vector Stmt)  -- body
-    SFunction !TokenType.Token !(Vector TokenType.Token) !(Vector Stmt)
+    -- >   (Vector (Stmt phase))  -- body
+    SFunction !TokenType.Token !(Vector TokenType.Token) !(Vector (Stmt phase))
   | -- | > SIf
     -- >   Expr -- condition
-    -- >   Stmt -- thenBranch
-    -- >   Maybe Stmt -- elseBranch
-    SIf !Expr.Expr !Stmt !(Maybe Stmt)
+    -- >   (Stmt phase) -- thenBranch
+    -- >   Maybe (Stmt phase) -- elseBranch
+    SIf !(Expr.Expr phase) !(Stmt phase) !(Maybe (Stmt phase))
   | -- | > SPrint
     -- >   Expr -- expression
-    SPrint !Expr.Expr
+    SPrint !(Expr.Expr phase)
   | -- | > SReturn
     -- >   TokenType.Token   -- keyword
-    -- >   (Maybe Expr.Expr) -- value
-    SReturn !TokenType.Token !(Maybe Expr.Expr)
+    -- >   (Maybe Expr.Expr phase) -- value
+    SReturn !TokenType.Token !(Maybe (Expr.Expr phase))
   | -- | > SVar
     -- >   Token -- name
     -- >   Maybe Expr  -- initializer
-    SVar !TokenType.Token !(Maybe Expr.Expr)
+    SVar !TokenType.Token !(Maybe (Expr.Expr phase))
   | -- | > SWhile
     -- >   Expr -- condition
-    -- >   Stmt -- body
-    SWhile !Expr.Expr Stmt
+    -- >   (Stmt phase) -- body
+    SWhile !(Expr.Expr phase) (Stmt phase)

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
@@ -18,7 +19,7 @@ import Data.ByteString.Char8 qualified as BS
 import Data.Foldable (traverse_)
 import Data.Function ((&))
 import Data.Functor ((<&>))
-import Data.IORef (newIORef)
+import Data.IORef (newIORef, readIORef)
 import Data.Map.Strict qualified as M
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock.POSIX qualified as Time
@@ -31,11 +32,7 @@ import Scanner (whileM)
 import Stmt qualified
 import TokenType qualified
 
-{-# SPECIALIZE whileM ::
-  InterpreterM Bool -> InterpreterM a -> InterpreterM ()
-  #-}
-
-evaluate :: Expr.Expr -> InterpreterM Expr.LiteralValue
+evaluate :: Expr.Expr2 -> InterpreterM Expr.LiteralValue
 evaluate = \case
   Expr.ELiteral val -> pure val
   Expr.ELogical left operator right -> do
@@ -95,10 +92,12 @@ evaluate = \case
               )
         callable_call (call params) argVals
       _ -> throwError $ Error.RuntimeError paren "Can only call functions and classes."
-  Expr.EVariable name -> get name
-  Expr.EAssign name exprValue -> do
+  Expr.EVariable name distance -> lookUpVariable name distance
+  Expr.EAssign name exprValue distance -> do
     value <- evaluate exprValue
-    assign name value
+    if distance == (-1)
+      then State.gets (.globals) >>= assignFromMap name value
+      else State.gets (.environment) >>= assignAt distance name value
     pure value
   where
     -- See note for Double comparison in Lox in Expr.hs
@@ -123,7 +122,7 @@ stringify = \case
   Expr.LString v -> v
   Expr.LCallable toString _ _ -> toString
 
-execute :: Stmt.Stmt -> InterpreterM ()
+execute :: Stmt.Stmt2 -> InterpreterM ()
 execute = \case
   Stmt.SExpression expression -> void $ evaluate expression
   Stmt.SIf condition thenBranch elseBranch -> do
@@ -164,7 +163,7 @@ execute = \case
 call
   :: Vector TokenType.Token
   -> Environment
-  -> Vector Stmt.Stmt
+  -> Vector Stmt.Stmt2
   -> Vector Expr.LiteralValue
   -> InterpreterM Expr.LiteralValue
 call params closure body args = do
@@ -187,19 +186,20 @@ call params closure body args = do
       e -> throwError e
 
 executeBlock
-  :: Vector Stmt.Stmt -> Environment -> Environment -> InterpreterM ()
+  :: Vector Stmt.Stmt2 -> Environment -> Environment -> InterpreterM ()
 executeBlock statements prevEnv tempEnv = do
   State.modify' $ \st ->
     st {environment = tempEnv}
   finallyE (executeStmts statements) $ do
     State.modify' $ \st -> st {environment = prevEnv}
 
-interpret :: Vector Stmt.Stmt -> IO Error.ErrorPresent
+interpret :: Vector Stmt.Stmt2 -> IO Error.ErrorPresent
 interpret statements = do
   globalsRef <- newIORef globals
   let initialInterpreterState =
         InterpreterState
           { environment = GlobalEnvironment {values = globalsRef}
+          , globals = globalsRef
           }
   value <-
     State.evalStateT (runExceptT $ executeStmts statements) initialInterpreterState
@@ -221,5 +221,5 @@ interpret statements = do
           )
         ]
 
-executeStmts :: Vector Stmt.Stmt -> InterpreterM ()
+executeStmts :: Vector Stmt.Stmt2 -> InterpreterM ()
 executeStmts = traverse_ execute

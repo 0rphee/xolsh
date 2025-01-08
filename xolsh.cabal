@@ -58,6 +58,7 @@ library
     Expr
     Interpreter
     Parser
+    Resolver
     Scanner
     Stmt
     TokenType

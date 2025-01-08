@@ -6,6 +6,7 @@ module Error
   , reportRuntimeError
   , ErrorPresent (..)
   , RuntimeException (..)
+  , resolverError
   )
 where
 
@@ -40,6 +41,10 @@ parseError token message =
   if token.ttype == EOF
     then report token.tline " at end" message
     else report token.tline (" at '" <> token.lexeme <> "'") message
+
+resolverError
+  :: (MonadIO m, MonadWriter ErrorPresent m) => Token -> ByteString -> m ()
+resolverError = parseError
 
 data RuntimeException
   = RuntimeError {token :: TokenType.Token, message :: BS.ByteString}

@@ -1,7 +1,16 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
-module Environment where
+module Environment
+  ( InterpreterState (..)
+  , InterpreterM
+  , Environment (..)
+  , lookUpVariable
+  , assignAt
+  , assignFromMap
+  , define
+  )
+where
 
 import Control.Monad.Except (ExceptT, MonadError (..))
 import Control.Monad.IO.Class (MonadIO (liftIO))
@@ -15,7 +24,10 @@ import Error qualified
 import {-# SOURCE #-} Expr qualified
 import TokenType qualified
 
-newtype InterpreterState = InterpreterState {environment :: Environment}
+data InterpreterState = InterpreterState
+  { globals :: IORef (Map ByteString Expr.LiteralValue)
+  , environment :: Environment
+  }
 
 {- |
 Removing newtypes, @InterpreterM a@ is equivalent to:
@@ -36,8 +48,67 @@ data Environment
       }
   deriving (Show)
 
-instance Show (IORef (Map byteString Expr.LiteralValue)) where
+instance Show (IORef (Map ByteString Expr.LiteralValue)) where
   show _ = "iorefmap"
+
+lookUpVariable :: TokenType.Token -> Int -> InterpreterM Expr.LiteralValue
+lookUpVariable name distance =
+  if distance == -1
+    then State.gets (.globals) >>= getFromMap name
+    else State.gets (.environment) >>= getAt distance
+  where
+    getAt dist environment =
+      case dist of
+        0 -> do
+          getFromMap name environment.values
+        _ ->
+          case environment of
+            GlobalEnvironment _mapref ->
+              -- should never happen, verified by resolver
+              -- getFromMap name _mapref
+              throwError $ Error.RuntimeError name "Failure in resolver, bug in interpreter"
+            LocalEnvironment _ enc -> getAt (dist - 1) enc
+
+assignAt
+  :: Int -> TokenType.Token -> Expr.LiteralValue -> Environment -> InterpreterM ()
+assignAt dist name value environment = do
+  mapRef <- getAncestor dist environment
+  assignFromMap name value mapRef
+  where
+    getAncestor
+      :: Int -> Environment -> InterpreterM (IORef (Map ByteString Expr.LiteralValue))
+    getAncestor count currEnv =
+      if count == 0
+        then pure currEnv.values
+        else case currEnv of
+          GlobalEnvironment _ ->
+            throwError $ Error.RuntimeError name "Failure in resolver, bug in interpreter"
+          LocalEnvironment _ enc -> getAncestor (count - 1) enc
+
+assignFromMap
+  :: TokenType.Token
+  -> Expr.LiteralValue
+  -> IORef (Map ByteString Expr.LiteralValue)
+  -> InterpreterM ()
+assignFromMap name value mapRef =
+  liftIO (readIORef mapRef) >>= \vmap ->
+    if M.member name.lexeme vmap
+      then liftIO $ writeIORef mapRef $ M.insert name.lexeme value vmap
+      else
+        throwError $
+          Error.RuntimeError name ("Undefined variable '" <> name.lexeme <> "'.")
+
+getFromMap
+  :: TokenType.Token
+  -> IORef (Map ByteString Expr.LiteralValue)
+  -> InterpreterM Expr.LiteralValue
+getFromMap name ref =
+  liftIO (readIORef ref) >>= \m -> do
+    case m M.!? name.lexeme of
+      Just v -> pure v
+      Nothing ->
+        throwError $
+          Error.RuntimeError name ("Undefined variable '" <> name.lexeme <> "'.")
 
 {-# INLINEABLE define #-}
 define

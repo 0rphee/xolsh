@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module Main (main) where
@@ -12,6 +13,7 @@ import Data.IORef qualified as IORef
 import Error qualified
 import Interpreter (interpret)
 import Parser (runParse)
+import Resolver (runResolver)
 import Scanner
 import System.Exit qualified
 
@@ -79,6 +81,12 @@ run sourceBS = do
           pure ()
         Just stmts -> do
           -- lift . liftIO $ B.putStrLn "parse success"
-          hadRuntimeError <- liftIO $ interpret stmts
-          when (hadRuntimeError == Error.Error) $
-            ask >>= \ref -> liftIO $ IORef.modifyIORef' ref.unGlobal $ \old -> old {hadRuntimeError = Error.Error}
+          liftIO (runResolver stmts) >>= \case
+            Nothing ->
+              ask >>= \ref -> liftIO $
+                IORef.modifyIORef' ref.unGlobal $
+                  \old -> old {hadError = Error.Error}
+            Just stmts2 -> do
+              hadRuntimeError <- liftIO $ interpret stmts2
+              when (hadRuntimeError == Error.Error) $
+                ask >>= \ref -> liftIO $ IORef.modifyIORef' ref.unGlobal $ \old -> old {hadRuntimeError = Error.Error}

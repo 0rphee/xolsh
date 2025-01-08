@@ -10,7 +10,7 @@ import Data.Foldable (foldl')
 import Expr (Expr (..), LiteralValue (..))
 import TokenType (Token (..))
 
-printAst :: Expr -> ByteString
+printAst :: Expr a -> ByteString
 printAst = BS.toStrict . BS.toLazyByteString . go
   where
     go = \case

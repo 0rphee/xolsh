@@ -1,4 +1,7 @@
-module Expr (Expr (..), LiteralValue (..)) where
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+
+module Expr (IPhase (..), Expr (..), LiteralValue (..), Expr1, Expr2) where
 
 import Data.ByteString.Char8 (ByteString)
 import Data.Vector (Vector)
@@ -6,40 +9,50 @@ import Environment (Environment, InterpreterM)
 import Stmt qualified
 import TokenType (Token (..))
 
-data Expr
+data IPhase = PH1 | PH2
+
+type Expr1 = Expr PH1
+
+type Expr2 = Expr PH2
+
+type family XEnvDistance (phase :: IPhase) where
+  XEnvDistance PH1 = ()
+  XEnvDistance PH2 = Int
+
+data Expr (phase :: IPhase)
   = -- | > EAssign
     -- >   Token -- name
     -- >   Expr  -- value
-    EAssign !Token !Expr
+    EAssign !Token !(Expr phase) !(XEnvDistance phase)
   | -- | > EBinary
-    -- >   Expr -- left
+    -- >   (Expr phase)-- left
     -- >   Token -- operator
-    -- >   Expr -- right
-    EBinary !Expr !Token !Expr
+    -- >   (Expr phase)-- right
+    EBinary !(Expr phase) !Token !(Expr phase)
   | -- | > ECall
-    -- >   Expr   -- callee
+    -- >   (Expr phase)  -- callee
     -- >   Token  -- paren
-    -- >   [Expr] -- arguments
-    ECall !Expr !Token !(Vector Expr)
+    -- >   [(Expr phase)] -- arguments
+    ECall !(Expr phase) !Token !(Vector (Expr phase))
   | -- | > EGrouping
-    -- >   Expr -- expression
+    -- >   (Expr phase)-- expression
     EGrouping
-      !Expr
+      !(Expr phase)
   | -- | > ELiteral
     -- >   LiteralValue -- value
     ELiteral !LiteralValue
   | -- | > ELogical
-    -- >   Expr -- left
+    -- >   (Expr phase)-- left
     -- >   Token -- operator
-    -- >   Expr -- right
-    ELogical !Expr !Token !Expr
+    -- >   (Expr phase)-- right
+    ELogical !(Expr phase) !Token !(Expr phase)
   | -- | > EUnary
     -- >   Token -- operator
-    -- >   Expr -- expression
-    EUnary !Token !Expr
+    -- >   (Expr phase)-- expression
+    EUnary !Token !(Expr phase)
   | -- | > EVariable
     -- >   Token -- name
-    EVariable !Token
+    EVariable !Token !(XEnvDistance phase)
 
 data LiteralValue
   = LNil
@@ -51,7 +64,7 @@ data LiteralValue
       , callable_params :: !(Vector Token)
       , callable_call
           :: ( Environment -- closure environment
-               -> Vector Stmt.Stmt -- body of lox function
+               -> Vector Stmt.Stmt2 -- body of lox function
                -> Vector LiteralValue -- arguments
                -> InterpreterM LiteralValue -- this function is ignored when calling native functions
              )

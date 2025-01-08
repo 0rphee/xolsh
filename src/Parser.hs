@@ -52,14 +52,14 @@ type ParserM r a =
 
 data ParseException = ParseException
 
-runParse :: Vector Token -> IO (Maybe (Vector Stmt.Stmt), Error.ErrorPresent)
+runParse :: Vector Token -> IO (Maybe (Vector Stmt.Stmt1), Error.ErrorPresent)
 runParse tokens = do
   (r, w) <- (evalRWST . runExceptT) parse () initialParserState
   pure (either (const Nothing) Just r, w)
   where
     initialParserState = Parser {current = 0, tokens = tokens}
 
-parse :: ParserM r (Vector Stmt.Stmt)
+parse :: ParserM r (Vector Stmt.Stmt1)
 parse = go VB.empty
   where
     go accum = do
@@ -72,7 +72,7 @@ parse = go VB.empty
             Nothing -> go accum
         else pure $ VB.build accum
 
-varDeclaration :: ParserM r Stmt.Stmt
+varDeclaration :: ParserM r Stmt.Stmt1
 varDeclaration = do
   name <- consume IDENTIFIER "Expect variable name."
   m <- match [EQUAL]
@@ -80,7 +80,7 @@ varDeclaration = do
   consume SEMICOLON "Expect ';' after variable declaration."
   pure $ Stmt.SVar name initializer
 
-declaration :: ParserM r (Maybe Stmt.Stmt)
+declaration :: ParserM r (Maybe Stmt.Stmt1)
 declaration = do
   e <- tryError $ do
     safePeek >>= \case
@@ -92,7 +92,7 @@ declaration = do
     Right v -> pure $ Just v
 
 {-# INLINE function #-}
-function :: ByteString -> ParserM r Stmt.Stmt
+function :: ByteString -> ParserM r Stmt.Stmt1
 function kind = do
   name <- consume IDENTIFIER $ "Expect " <> kind <> " name."
   consume LEFT_PAREN $ "Expect '(' after " <> kind <> " name."
@@ -115,7 +115,7 @@ function kind = do
         True -> getParams (accum <> VB.singleton nextParamName)
         False -> pure $ VB.build (accum <> VB.singleton nextParamName)
 
-statement :: ParserM r Stmt.Stmt
+statement :: ParserM r Stmt.Stmt1
 statement =
   safePeek >>= \case
     Just (Token FOR _ _) -> advance >> forStatement
@@ -126,7 +126,7 @@ statement =
     Just (Token LEFT_BRACE _ _) -> advance >> (Stmt.SBlock <$> block)
     _ -> expressionStatement
 
-returnStatement :: ParserM r Stmt.Stmt
+returnStatement :: ParserM r Stmt.Stmt1
 returnStatement = do
   keyword <- previous
   value <-
@@ -137,7 +137,7 @@ returnStatement = do
   consume SEMICOLON "Expect ';' after return value."
   pure $ Stmt.SReturn keyword value
 
-forStatement :: ParserM r Stmt.Stmt
+forStatement :: ParserM r Stmt.Stmt1
 forStatement = do
   consume LEFT_PAREN "Expect '(' after 'for'."
   initializer <-
@@ -170,14 +170,14 @@ forStatement = do
         Nothing -> whileStmt
   pure finishedForStmt
 
-whileStatement :: ParserM r Stmt.Stmt
+whileStatement :: ParserM r Stmt.Stmt1
 whileStatement = do
   consume LEFT_PAREN "Expect '(' after 'while'."
   condition <- expression
   consume RIGHT_PAREN "Expect ')' after condition."
   Stmt.SWhile condition <$> statement
 
-ifStatement :: ParserM r Stmt.Stmt
+ifStatement :: ParserM r Stmt.Stmt1
 ifStatement = do
   consume LEFT_PAREN "Expect '(' after 'if'."
   condition <- expression
@@ -189,7 +189,7 @@ ifStatement = do
       False -> pure Nothing
   pure $ Stmt.SIf condition thenBranch elseBranch
 
-block :: ParserM r (Vector Stmt.Stmt)
+block :: ParserM r (Vector Stmt.Stmt1)
 block = go VB.empty <* consume RIGHT_BRACE "Expect '}' after block."
   where
     go accum = do
@@ -202,22 +202,22 @@ block = go VB.empty <* consume RIGHT_BRACE "Expect '}' after block."
             Nothing -> go accum
         else pure (VB.build accum)
 
-printStatement :: ParserM r Stmt.Stmt
+printStatement :: ParserM r Stmt.Stmt1
 printStatement = do
   value <- expression
   consume SEMICOLON "Expect ';' after value."
   pure $ Stmt.SPrint value
 
-expressionStatement :: ParserM r Stmt.Stmt
+expressionStatement :: ParserM r Stmt.Stmt1
 expressionStatement = do
   expr <- expression
   consume SEMICOLON "Expect ';' after expression."
   pure $ Stmt.SExpression expr
 
-expression :: ParserM r Expr
+expression :: ParserM r Expr1
 expression = assignment
 
-assignment :: ParserM r Expr
+assignment :: ParserM r Expr1
 assignment = do
   expr <- orP
   m <- match [EQUAL]
@@ -226,32 +226,32 @@ assignment = do
       equals <- previous
       value <- assignment
       case expr of
-        Expr.EVariable name -> pure $ Expr.EAssign name value
+        Expr.EVariable name _ -> pure $ Expr.EAssign name value ()
         _ -> do
           -- the error is reported, but does not need to synchronize, hence why there's no `throwError`
           getAndReportParserError equals "Invalid assignment target."
           pure expr
     else pure expr
 
-orP :: ParserM r Expr
+orP :: ParserM r Expr1
 orP = andP >>= whileParseELogical andP [OR]
 
-andP :: ParserM r Expr
+andP :: ParserM r Expr1
 andP = equality >>= whileParseELogical equality [AND]
 
-equality :: ParserM r Expr
+equality :: ParserM r Expr1
 equality = comparison >>= whileParseEBinary comparison [BANG_EQUAL, EQUAL_EQUAL]
 
-comparison :: ParserM r Expr
+comparison :: ParserM r Expr1
 comparison = term >>= whileParseEBinary term [GREATER, GREATER_EQUAL, LESS, LESS_EQUAL]
 
-term :: ParserM r Expr
+term :: ParserM r Expr1
 term = factor >>= whileParseEBinary factor [MINUS, PLUS]
 
-factor :: ParserM r Expr
+factor :: ParserM r Expr1
 factor = unary >>= whileParseEBinary unary [SLASH, STAR]
 
-unary :: ParserM r Expr
+unary :: ParserM r Expr1
 unary = do
   match [BANG, MINUS] >>= \m ->
     if m
@@ -259,12 +259,12 @@ unary = do
       else
         call
 
-call :: ParserM r Expr
+call :: ParserM r Expr1
 call = do
   expr <- primary
   whileTrue expr
   where
-    whileTrue :: Expr -> ParserM r Expr
+    whileTrue :: Expr1 -> ParserM r Expr1
     whileTrue prev = do
       safePeek >>= \case
         -- if we find a LEFT_PAREN after a primary expr, this is a function call
@@ -272,7 +272,7 @@ call = do
           advance >> finishCall prev >>= whileTrue
         _ ->
           pure prev
-    finishCall :: Expr -> ParserM r Expr
+    finishCall :: Expr1 -> ParserM r Expr1
     finishCall callee = do
       arguments <-
         not <$> check RIGHT_PAREN >>= \case
@@ -283,7 +283,7 @@ call = do
       paren <- consume RIGHT_PAREN "Expect ')' after arguments."
       pure $ ECall callee paren arguments
       where
-        getArgs :: Int -> VB.Builder Expr -> ParserM r (Vector Expr)
+        getArgs :: Int -> VB.Builder Expr1 -> ParserM r (Vector Expr1)
         getArgs argCount accum = do
           when (argCount >= 255) $ do
             peek >>= \tok -> void $ getAndReportParserError tok "Can't have more than 255 arguments."
@@ -292,7 +292,7 @@ call = do
             True -> getArgs (argCount + 1) (accum <> VB.singleton nextArg)
             False -> pure $ VB.build (accum <> VB.singleton nextArg)
 
-primary :: ParserM r Expr
+primary :: ParserM r Expr1
 primary = do
   t <- safePeek
   case t of
@@ -301,7 +301,7 @@ primary = do
     Just (Token NIL _ _) -> advance >> pure (ELiteral LNil)
     Just (Token (NUMBER lit) _ _) -> advance >> pure (ELiteral $ LNumber lit)
     Just (Token (STRING lit) _ _) -> advance >> pure (ELiteral $ LString lit)
-    Just tok@(Token IDENTIFIER _ _) -> advance >> pure (EVariable tok)
+    Just tok@(Token IDENTIFIER _ _) -> advance >> pure (EVariable tok ())
     Just (Token LEFT_PAREN _ _) ->
       advance >> do
         expr <- expression
@@ -318,11 +318,11 @@ safePeek = do
 
 {-# INLINE whileParse #-}
 whileParse
-  :: (Expr -> Token -> Expr -> Expr)
-  -> ParserM r Expr
+  :: (Expr1 -> Token -> Expr1 -> Expr1)
+  -> ParserM r Expr1
   -> [TokenType]
-  -> Expr
-  -> ParserM r Expr
+  -> Expr1
+  -> ParserM r Expr1
 whileParse constr = go
   where
     go inner matchlist eAccum = do
@@ -335,10 +335,10 @@ whileParse constr = go
         else
           pure eAccum
 
-whileParseEBinary :: ParserM r Expr -> [TokenType] -> Expr -> ParserM r Expr
+whileParseEBinary :: ParserM r Expr1 -> [TokenType] -> Expr1 -> ParserM r Expr1
 whileParseEBinary = whileParse EBinary
 
-whileParseELogical :: ParserM r Expr -> [TokenType] -> Expr -> ParserM r Expr
+whileParseELogical :: ParserM r Expr1 -> [TokenType] -> Expr1 -> ParserM r Expr1
 whileParseELogical = whileParse ELogical
 
 synchronize :: ParserM r ()
