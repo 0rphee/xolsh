@@ -330,6 +330,7 @@ primary = do
     Just (Token NIL _ _) -> advance >> pure (ELiteral LNil)
     Just (Token (NUMBER lit) _ _) -> advance >> pure (ELiteral $ LNumber lit)
     Just (Token (STRING lit) _ _) -> advance >> pure (ELiteral $ LString lit)
+    Just tok@(Token THIS _ _) -> advance >> pure (EThis tok ())
     Just tok@(Token IDENTIFIER _ _) -> advance >> pure (EVariable tok ())
     Just (Token LEFT_PAREN _ _) ->
       advance >> do

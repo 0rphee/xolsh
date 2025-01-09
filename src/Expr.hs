@@ -57,6 +57,10 @@ data Expr (phase :: IPhase)
     -- >   Token -- name
     -- >   Expr phase -- value
     ESet !(Expr phase) !Token !(Expr phase)
+  | -- | > EThis
+    -- >   Token -- keyword
+    -- >   XenvDistance phase -- distance
+    EThis !Token !(XEnvDistance phase)
   | -- | > EUnary
     -- >   Token -- operator
     -- >   (Expr phase)-- expression
@@ -69,9 +73,9 @@ data Callable
   = CFunction
       { callable_toString :: !ByteString
       , callable_params :: !(Vector Token)
+      , callable_closure :: !Environment -- closure environment
       , callable_call
-          :: ( Environment -- closure environment
-               -> Vector Stmt.Stmt2 -- body of lox function
+          :: ( Vector Stmt.Stmt2 -- body of lox function
                -> Vector LiteralValue -- arguments
                -> InterpreterM LiteralValue -- this function is ignored when calling native functions
              )
@@ -83,8 +87,7 @@ data Callable
       { callable_toString :: !ByteString
       , callable_params :: !(Vector Token)
       , callable_call
-          :: ( Environment -- closure environment
-               -> Vector Stmt.Stmt2 -- body of lox function
+          :: ( Vector Stmt.Stmt2 -- body of lox function
                -> Vector LiteralValue -- arguments
                -> InterpreterM LiteralValue -- this function is ignored when calling native functions
              )

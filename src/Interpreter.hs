@@ -15,11 +15,12 @@ import Control.Monad.State.Strict
 import Control.Monad.State.Strict qualified as State
 import Control.Monad.Trans.Except (finallyE)
 import Data.ByteString.Char8 (ByteString)
+import Data.ByteString.Char8 qualified as B
 import Data.ByteString.Char8 qualified as BS
 import Data.Foldable (traverse_)
 import Data.Function ((&))
 import Data.Functor ((<&>))
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Maybe (fromMaybe)
@@ -50,6 +51,8 @@ evaluate = \case
         setInstanceField name evVal instanceFields
         pure evVal
       _ -> throwError $ Error.RuntimeError name "Only instances have fields."
+  Expr.EThis keyword distance -> do
+    lookUpVariable keyword distance
   Expr.EGrouping expr -> evaluate expr
   Expr.EUnary op expr -> do
     right <- evaluate expr
@@ -99,12 +102,12 @@ evaluate = \case
                   <> BS.pack (show $ V.length argumentsExprs)
                   <> "."
               )
-        c.callable_call (call c.callable_params) argVals
+        c.callable_call (call c.callable_params c.callable_closure) argVals
       _ -> throwError $ Error.RuntimeError paren "Can only call functions and classes."
-  Expr.EGet object name -> do
+  Expr.EGet object fieldName -> do
     evaluate object >>= \case
-      Expr.LInstance fields _ methods -> getInstanceFieldOrMethod name fields methods
-      _ -> throwError $ Error.RuntimeError name "Only instances have properties."
+      Expr.LInstance fields instanceName methods -> getInstanceFieldOrMethod fieldName instanceName fields methods
+      _ -> throwError $ Error.RuntimeError fieldName "Only instances have properties."
   Expr.EVariable name distance -> lookUpVariable name distance
   Expr.EAssign name exprValue distance -> do
     value <- evaluate exprValue
@@ -118,20 +121,37 @@ evaluate = \case
 
 getInstanceFieldOrMethod
   :: TokenType.Token
+  -> ByteString
   -> IORef (Map ByteString Expr.LiteralValue)
   -> IORef (Map ByteString Expr.Callable)
   -> InterpreterM Expr.LiteralValue
-getInstanceFieldOrMethod name fieldsRef methdsRef = do
+getInstanceFieldOrMethod fieldName instanceName fieldsRef methdsRef = do
   fields <- liftIO $ readIORef fieldsRef
-  case fields M.!? name.lexeme of
+  case fields M.!? fieldName.lexeme of
     Just v -> pure v
     Nothing -> do
       methds <- liftIO $ readIORef methdsRef
-      case methds M.!? name.lexeme of
-        Just v -> pure $ Expr.LCallable v
+      case methds M.!? fieldName.lexeme of
+        Just foundMthd -> do
+          case foundMthd of
+            cf@(Expr.CFunction {}) -> do
+              -- method.bind
+              newClosureEnv <-
+                liftIO (newIORef M.empty)
+                  <&> \mref -> LocalEnvironment mref cf.callable_closure
+              define "this" (Expr.LInstance fieldsRef instanceName methdsRef) newClosureEnv
+              pure $ Expr.LCallable $ cf {Expr.callable_closure = newClosureEnv}
+            _ ->
+              throwError $
+                Error.RuntimeError
+                  fieldName
+                  ( "Error in interpreter, field should not be class '" <> fieldName.lexeme <> "'."
+                  )
         Nothing ->
           throwError $
-            Error.RuntimeError name ("Undefined property '" <> name.lexeme <> "'.")
+            Error.RuntimeError
+              fieldName
+              ("Undefined property '" <> fieldName.lexeme <> "'.")
 
 setInstanceField
   :: TokenType.Token
@@ -224,7 +244,8 @@ newFun = \case
           Expr.CFunction
             { Expr.callable_toString = "<fn " <> name.lexeme <> ">"
             , Expr.callable_params = params
-            , Expr.callable_call = \evaluator args -> evaluator closure body args
+            , Expr.callable_closure = closure
+            , Expr.callable_call = \evaluator args -> evaluator body args
             }
     pure function
 
@@ -263,10 +284,11 @@ executeBlock statements prevEnv tempEnv = do
 
 interpret :: Vector Stmt.Stmt2 -> IO Error.ErrorPresent
 interpret statements = do
-  globalsRef <- newIORef globals
+  globalsRef <- newIORef M.empty
+  writeIORef globalsRef $ globals globalsRef
   let initialInterpreterState =
         InterpreterState
-          { environment = GlobalEnvironment {values = globalsRef}
+          { environment = GlobalEnvironment globalsRef
           , globals = globalsRef
           }
   value <-
@@ -275,7 +297,7 @@ interpret statements = do
     Left e -> Error.reportRuntimeError e >> pure Error.Error
     Right () -> pure Error.NoError
   where
-    globals =
+    globals globalsRef =
       M.fromList
         [
           ( "clock"
@@ -283,6 +305,7 @@ interpret statements = do
               Expr.CFunction
                 { Expr.callable_toString = "<native fn>"
                 , Expr.callable_params = V.empty
+                , Expr.callable_closure = GlobalEnvironment globalsRef
                 , Expr.callable_call = \_evaluator _args ->
                     -- realToFrac & fromIntegral treat NominalDiffTime as seconds
                     Expr.LNumber . realToFrac <$> liftIO Time.getPOSIXTime
@@ -292,3 +315,14 @@ interpret statements = do
 
 executeStmts :: Vector Stmt.Stmt2 -> InterpreterM ()
 executeStmts = traverse_ execute
+
+recPrintEnvs
+  :: Environment -> Int -> InterpreterM ()
+recPrintEnvs env count = case env of
+  GlobalEnvironment v -> printEnvRef v
+  LocalEnvironment v enc -> printEnvRef v >> recPrintEnvs enc (count + 1)
+  where
+    printEnvRef :: IORef (Map ByteString Expr.LiteralValue) -> InterpreterM ()
+    printEnvRef ref = do
+      liftIO (readIORef ref)
+        >>= liftIO . putStrLn . (\m -> show (M.map stringify m) <> " " <> show count)

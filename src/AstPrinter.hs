@@ -22,7 +22,9 @@ printAst = BS.toStrict . BS.toLazyByteString . go
           LString str -> BS.byteString str
           LNumber num -> BS.stringUtf8 $ show num
           LBool b -> (if b then "true" else "false")
+          _ -> "litval unimplemented!"
       EUnary operator expr -> paren (BS.byteString operator.lexeme) [go expr]
+      _ -> "expr unimplemented!"
       where
         paren :: BS.Builder -> [BS.Builder] -> BS.Builder
         paren name s =

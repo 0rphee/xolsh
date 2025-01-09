@@ -63,7 +63,7 @@ lookUpVariable name distance =
           getFromMap name environment.values
         _ ->
           case environment of
-            GlobalEnvironment _mapref ->
+            GlobalEnvironment _ ->
               -- should never happen, verified by resolver
               -- getFromMap name _mapref
               throwError $ Error.RuntimeError name "Failure in resolver, bug in interpreter"

@@ -4,7 +4,7 @@
 module Resolver (runResolver) where
 
 import Control.Monad (when)
-import Control.Monad.RWS.CPS (RWST, evalRWST)
+import Control.Monad.RWS.CPS (MonadIO (..), RWST, evalRWST)
 import Control.Monad.State.Class qualified as State
 import Data.ByteString (ByteString)
 import Data.Foldable (traverse_)
@@ -51,6 +51,18 @@ resolveStmt = \case
   Stmt.SClass name _methods -> do
     declare name
     define name
+
+    beginScope
+    newSt <-
+      State.get >>= \oldSt -> do
+        newSc <- case oldSt.scopes of
+          [] -> do
+            Error.resolverError name "Failure in resolver, bug in interpreter"
+            pure []
+          (x : xs) -> pure $ M.insert "this" True x : xs
+        pure $ oldSt {scopes = newSc}
+    State.put newSt
+
     nMethods <-
       traverse
         ( \(Stmt.FFunctionH fname params body) -> do
@@ -58,6 +70,7 @@ resolveStmt = \case
             pure $ Stmt.FFunctionH fname params nBody
         )
         _methods
+    endScope
     pure $ Stmt.SClass name nMethods
   Stmt.SVar name initializer -> do
     declare name
@@ -137,6 +150,11 @@ resolveExpr = \case
     nValue <- resolveExpr value
     nObject <- resolveExpr object
     pure $ Expr.ESet nObject name nValue
+  Expr.EThis keyword _ -> do
+    distance <- resolveLocal keyword.lexeme
+    liftIO $ print "distance this"
+    liftIO $ print distance
+    pure $ Expr.EThis keyword distance
   Expr.EUnary t expr -> Expr.EUnary t <$> resolveExpr expr
 
 beginScope :: ResolverM ()
