@@ -5,6 +5,7 @@ module Environment
   ( InterpreterState (..)
   , InterpreterM
   , Environment (..)
+  , ClassMethodChain (..)
   , lookUpVariable
   , assignAt
   , assignFromMap
@@ -47,6 +48,14 @@ data Environment
       , _enclosing :: Environment
       }
   deriving (Show, Eq)
+
+data ClassMethodChain
+  = ClassNoSuper {this_methods :: IORef (Map ByteString Expr.Callable)}
+  | ClassWithSuper
+      { this_methods :: IORef (Map ByteString Expr.Callable)
+      , _superMethods :: ClassMethodChain
+      }
+  deriving (Eq)
 
 instance Show (IORef (Map ByteString Expr.LiteralValue)) where
   show _ = "iorefmap"

@@ -7,7 +7,6 @@
 module Interpreter (evaluate, interpret) where
 
 import Control.Monad (void, when)
-import Control.Monad.Error.Class (catchError)
 import Control.Monad.Except (runExceptT, throwError, tryError)
 import Control.Monad.State.Strict
   ( MonadIO (..)
@@ -26,7 +25,6 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Clock.POSIX qualified as Time
 import Data.Vector (Vector)
 import Data.Vector qualified as V
-import Debug.Trace (traceShowId, traceShowWith)
 import Environment
 import Error qualified
 import Expr qualified
@@ -123,38 +121,49 @@ getInstanceFieldOrMethod
   :: TokenType.Token
   -> ByteString
   -> IORef (Map ByteString Expr.LiteralValue)
-  -> IORef (Map ByteString Expr.Callable)
+  -> ClassMethodChain
   -> InterpreterM Expr.LiteralValue
-getInstanceFieldOrMethod fieldName instanceName fieldsRef methdsRef = do
+getInstanceFieldOrMethod fieldName instanceName fieldsRef classMethodChain = do
   fields <- liftIO $ readIORef fieldsRef
   case fields M.!? fieldName.lexeme of
     Just v -> pure v
     Nothing -> do
-      methds <- liftIO $ readIORef methdsRef
-      case methds M.!? fieldName.lexeme of
+      checkMethodchain classMethodChain >>= \case
         Just foundMthd -> do
           Expr.LCallable . fst
-            <$> bind fieldName fieldsRef instanceName methdsRef foundMthd
+            <$> bind fieldName fieldsRef instanceName classMethodChain foundMthd
         Nothing ->
           throwError $
             Error.RuntimeError
               fieldName
               ("Undefined property '" <> fieldName.lexeme <> "'.")
+  where
+    checkMethodchain :: ClassMethodChain -> InterpreterM (Maybe Expr.Callable)
+    checkMethodchain = \case
+      ClassNoSuper v -> common v
+      ClassWithSuper v n ->
+        common v >>= \case
+          Nothing -> checkMethodchain n
+          just -> pure just
+      where
+        common
+          :: IORef (Map ByteString Expr.Callable) -> InterpreterM (Maybe Expr.Callable)
+        common ref = liftIO (readIORef ref) >>= \m -> pure (m M.!? fieldName.lexeme)
 
 bind
   :: TokenType.Token
   -> IORef (Map ByteString Expr.LiteralValue)
   -> ByteString
-  -> IORef (Map ByteString Expr.Callable)
+  -> ClassMethodChain
   -> Expr.Callable
   -> InterpreterM (Expr.Callable, Expr.LiteralValue)
-bind fieldName fieldsRef instanceName methdsRef cf =
+bind fieldName fieldsRef instanceName methdsChain cf =
   case cf of
     Expr.CFunction {} -> do
       newClosureEnv <-
         liftIO (newIORef M.empty)
           <&> \mref -> LocalEnvironment mref cf.callable_closure
-      let classInstance = Expr.LInstance fieldsRef instanceName methdsRef
+      let classInstance = Expr.LInstance fieldsRef instanceName methdsChain
       define "this" classInstance newClosureEnv
       pure (cf {Expr.callable_closure = newClosureEnv}, classInstance)
     _ ->
@@ -219,11 +228,18 @@ execute = \case
     newEnvValueMapRef <- liftIO $ newIORef mempty
     prevEnv <- State.gets (.environment)
     executeBlock statements prevEnv (LocalEnvironment newEnvValueMapRef prevEnv)
-  Stmt.SClass klassName _methods -> do
+  Stmt.SClass klassName superclass _methods -> do
+    superClassMethdChain <- case superclass of
+      Nothing -> pure Environment.ClassNoSuper
+      Just (superclassTok, dist) ->
+        evaluate (Expr.EVariable superclassTok dist)
+          >>= \case
+            Expr.LCallable (Expr.CClass {Expr.class_methods}) -> pure $ \curr -> Environment.ClassWithSuper curr class_methods
+            _ -> throwError $ Error.RuntimeError superclassTok "Superclass must be a class."
     env <- State.gets (.environment)
     define klassName.lexeme Expr.LNil env
     mayInitMethd <- liftIO $ newIORef Nothing
-    methodsRef <-
+    thisClassMethodsChain <-
       V.foldM
         ( \acc next@(Stmt.FFunctionH fname _ _) -> do
             let isInit = fname.lexeme == "init"
@@ -236,21 +252,20 @@ execute = \case
         M.empty
         _methods
         >>= (liftIO . newIORef)
+        <&> superClassMethdChain
     mayInit <- liftIO (readIORef mayInitMethd)
     let (classArity, initMaker) = case mayInit of
           Just (initTok, originalInitMthd) -> do
             let initM fieldMapRef args = do
                   (initFunc, classInstance) <-
-                    bind initTok fieldMapRef klassName.lexeme methodsRef originalInitMthd
-                  initFunc.callable_call
-                    (call initFunc.callable_closure)
-                    args
+                    bind initTok fieldMapRef klassName.lexeme thisClassMethodsChain originalInitMthd
+                  initFunc.callable_call (call initFunc.callable_closure) args
                   pure classInstance
             (originalInitMthd.callable_arity, initM)
           Nothing -> do
             let initM fieldMapRef _args =
                   pure $
-                    Expr.LInstance fieldMapRef klassName.lexeme methodsRef
+                    Expr.LInstance fieldMapRef klassName.lexeme thisClassMethodsChain
             (0, initM)
     let klass =
           Expr.LCallable $
@@ -260,7 +275,7 @@ execute = \case
               , Expr.callable_call = \_evaluator args -> do
                   fieldMapRef <- liftIO $ newIORef M.empty
                   initMaker fieldMapRef args
-              , Expr.class_methods = methodsRef
+              , Expr.class_methods = thisClassMethodsChain
               }
     assignFromMap klassName klass env.values
   Stmt.SFunction f@(Stmt.FFunctionH name _params _body) -> do

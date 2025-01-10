@@ -9,6 +9,7 @@ module Expr
   , Expr2
   , Callable (..)
   , eqLiteralValue
+  , XEnvDistance
   )
 where
 
@@ -16,7 +17,7 @@ import Data.ByteString.Char8 (ByteString)
 import Data.IORef (IORef)
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
-import Environment (Environment, InterpreterM)
+import Environment (ClassMethodChain, Environment, InterpreterM)
 import Stmt qualified
 import TokenType (Token (..))
 
@@ -97,7 +98,7 @@ data Callable
       }
   | CClass
       { callable_toString :: !ByteString
-      , callable_arity :: Int
+      , callable_arity :: !Int
       , callable_call
           :: ( Token -- function token
                -> Vector Stmt.Stmt2 -- body of lox function
@@ -108,7 +109,7 @@ data Callable
              )
           -> Vector LiteralValue -- arguments
           -> InterpreterM LiteralValue
-      , class_methods :: !(IORef (Map ByteString Callable))
+      , class_methods :: !ClassMethodChain
       }
 
 instance Eq Callable where
@@ -125,6 +126,7 @@ eqCallable x y =
           && (isinit1 == isinit2)
           && closure1 == closure2
     (CClass name1 arity1 _ methds1, CClass name2 arity2 _ methds2) ->
+      -- TODO superclasses
       (name1 == name2)
         && (arity1 == arity2)
         && (methds1 == methds2)
@@ -137,9 +139,9 @@ data LiteralValue
   | LNumber !Double
   | LCallable Callable
   | LInstance
-      { _LInstanceFields :: IORef (Map ByteString LiteralValue)
-      , _LInstanceClassName :: ByteString
-      , _LInstanceMethods :: IORef (Map ByteString Callable)
+      { _LInstanceFields :: !(IORef (Map ByteString LiteralValue))
+      , _LInstanceClassName :: !ByteString
+      , _LInstanceMethods :: !ClassMethodChain
       }
 
 instance Eq LiteralValue where

@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
 {-# HLINT ignore "Redundant <$>" #-}
@@ -97,10 +98,15 @@ declaration = do
 classDeclaration :: ParserM r Stmt.Stmt1
 classDeclaration = do
   name <- consume IDENTIFIER "Expect class name."
+  superclass <-
+    safePeek >>= \case
+      Just (Token LESS _ _) ->
+        advance >> Just . (,()) <$> consume IDENTIFIER "expect superclass name."
+      _ -> pure Nothing
   consume LEFT_BRACE "Expect '{' before class body.."
   methods <- getMethods VB.empty
   consume RIGHT_BRACE "Expect '}' after class body."
-  pure $ Stmt.SClass name methods
+  pure $ Stmt.SClass name superclass methods
   where
     getMethods :: VB.Builder Stmt.FunctionH1 -> ParserM r (Vector Stmt.FunctionH1)
     getMethods accum = do

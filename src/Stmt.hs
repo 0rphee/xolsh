@@ -16,8 +16,12 @@ data Stmt (phase :: Expr.IPhase)
     SBlock !(Vector (Stmt phase))
   | -- | > SClass
     -- >   Token -- name
+    -- >   Maybe (Token, XEnvDistance phase) -- superclass
     -- >   Vector (FunctionH phase) -- methods
-    SClass !TokenType.Token !(Vector (FunctionH phase))
+    SClass
+      !TokenType.Token
+      !(Maybe (TokenType.Token, Expr.XEnvDistance phase))
+      !(Vector (FunctionH phase))
   | -- | > SExpression
     -- >   Expr phase -- expression
     SExpression !(Expr.Expr phase)

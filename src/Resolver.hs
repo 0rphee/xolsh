@@ -53,11 +53,17 @@ resolveStmt = \case
     newStmts <- traverse resolveStmt stmts
     endScope
     pure $ Stmt.SBlock newStmts
-  Stmt.SClass name _methods -> do
+  Stmt.SClass name superclass _methods -> do
     enclosingClass <- State.gets (.currentClass)
     State.modify' $ \st -> st {currentClass = CTClass}
     declare name
     define name
+    nSuperclass <- case superclass of
+      Just (superclassTok, ()) -> do
+        when (superclassTok.lexeme == name.lexeme) $
+          Error.resolverError superclassTok "A class can't inherit from itself."
+        Just . (superclassTok,) <$> resolveVariableName superclassTok
+      Nothing -> pure Nothing
 
     beginScope
     newSt <-
@@ -80,7 +86,7 @@ resolveStmt = \case
         _methods
     endScope
     State.modify' $ \st -> st {currentClass = enclosingClass}
-    pure $ Stmt.SClass name nMethods
+    pure $ Stmt.SClass name nSuperclass nMethods
   Stmt.SVar name initializer -> do
     declare name
     nInitializer <- traverse resolveExpr initializer
@@ -129,18 +135,22 @@ resolveFunction params body funType = do
   endScope
   pure nBody
 
+resolveVariableName :: TokenType.Token -> ResolverM Int
+resolveVariableName name = do
+  State.gets (.scopes) >>= \case
+    [] -> pure ()
+    (closestScope : _) ->
+      case closestScope M.!? name.lexeme of
+        Just v
+          | not v ->
+              Error.resolverError name "Can't read local variable in its own initializer."
+        _ -> pure ()
+  resolveLocal name.lexeme
+
 resolveExpr :: Expr.Expr1 -> ResolverM Expr.Expr2
 resolveExpr = \case
   Expr.EVariable name _ -> do
-    State.gets (.scopes) >>= \case
-      [] -> pure ()
-      (closestScope : _) ->
-        case closestScope M.!? name.lexeme of
-          Just v
-            | not v ->
-                Error.resolverError name "Can't read local variable in its own initializer."
-          _ -> pure ()
-    distance <- resolveLocal name.lexeme
+    distance <- resolveVariableName name
     pure $ Expr.EVariable name distance
   Expr.EAssign name value _ -> do
     nValue <- resolveExpr value
