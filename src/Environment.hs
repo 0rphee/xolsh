@@ -46,7 +46,7 @@ data Environment
       { values :: IORef (Map ByteString Expr.LiteralValue)
       , _enclosing :: Environment
       }
-  deriving (Show)
+  deriving (Show, Eq)
 
 instance Show (IORef (Map ByteString Expr.LiteralValue)) where
   show _ = "iorefmap"

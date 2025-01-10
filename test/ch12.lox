@@ -35,4 +35,19 @@ cake.taste(); // Prints "The German chocolate cake is delicious!".
 cake.flavor = "Green";
 cake.taste();
 
-taste = cake.taste;
+var taste = cake.taste;
+taste();
+
+class Foo {
+  init() {
+    print this;
+    this.prop = "hello";
+    }
+}
+
+var foo = Foo();
+print foo.prop;
+print foo.init();
+
+print foo.init;
+

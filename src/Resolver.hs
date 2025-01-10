@@ -4,28 +4,33 @@
 module Resolver (runResolver) where
 
 import Control.Monad (when)
-import Control.Monad.RWS.CPS (MonadIO (..), RWST, evalRWST)
+import Control.Monad.RWS.CPS (RWST, evalRWST)
 import Control.Monad.State.Class qualified as State
 import Data.ByteString (ByteString)
 import Data.Foldable (traverse_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Vector (Vector)
-import Data.Vector qualified as V
 import Error qualified
 import Expr qualified
 import Stmt qualified
 import TokenType qualified
 
 data FunctionType
-  = None
-  | Function
-  | Method
+  = FTNone
+  | FTFunction
+  | FTInitializer
+  | FTMethod
   deriving (Eq)
+
+data ClassType
+  = CTNone
+  | CTClass
 
 data ResolverState = ResolverState
   { scopes :: ![Map ByteString Bool]
   , currentFunction :: !FunctionType
+  , currentClass :: !ClassType
   }
 
 type ResolverM a = RWST () Error.ErrorPresent ResolverState IO a
@@ -38,7 +43,7 @@ runResolver stmts = do
     Error.NoError -> Just r
     Error.Error -> Nothing
   where
-    initialResolverState = ResolverState {scopes = [], currentFunction = None}
+    initialResolverState = ResolverState {scopes = [], currentFunction = FTNone, currentClass = CTNone}
     resolveStmts = traverse resolveStmt
 
 resolveStmt :: Stmt.Stmt1 -> ResolverM Stmt.Stmt2
@@ -49,6 +54,8 @@ resolveStmt = \case
     endScope
     pure $ Stmt.SBlock newStmts
   Stmt.SClass name _methods -> do
+    enclosingClass <- State.gets (.currentClass)
+    State.modify' $ \st -> st {currentClass = CTClass}
     declare name
     define name
 
@@ -66,11 +73,13 @@ resolveStmt = \case
     nMethods <-
       traverse
         ( \(Stmt.FFunctionH fname params body) -> do
-            nBody <- resolveFunction params body Method
+            let funtype = if fname.lexeme == "init" then FTInitializer else FTMethod
+            nBody <- resolveFunction params body funtype
             pure $ Stmt.FFunctionH fname params nBody
         )
         _methods
     endScope
+    State.modify' $ \st -> st {currentClass = enclosingClass}
     pure $ Stmt.SClass name nMethods
   Stmt.SVar name initializer -> do
     declare name
@@ -79,7 +88,7 @@ resolveStmt = \case
     pure $ Stmt.SVar name nInitializer
   Stmt.SFunction (Stmt.FFunctionH name params body) -> do
     declare name >> define name
-    nBody <- resolveFunction params body Function
+    nBody <- resolveFunction params body FTFunction
     pure $ Stmt.SFunction $ Stmt.FFunctionH name params nBody
   Stmt.SExpression expr -> Stmt.SExpression <$> resolveExpr expr
   Stmt.SIf cond thenBody elseBody -> do
@@ -90,8 +99,16 @@ resolveStmt = \case
   Stmt.SPrint expr -> Stmt.SPrint <$> resolveExpr expr
   Stmt.SReturn t expr -> do
     curF <- State.gets (.currentFunction)
-    when (curF == None) $ Error.resolverError t "Can't return from top-level code."
-    Stmt.SReturn t <$> traverse resolveExpr expr
+    when (curF == FTNone) $
+      Error.resolverError t "Can't return from top-level code."
+    Stmt.SReturn t
+      <$> traverse
+        ( \e -> do
+            when (curF == FTInitializer) $
+              Error.resolverError t "Can't return a value from an initializer."
+            resolveExpr e
+        )
+        expr
   Stmt.SWhile cond body -> do
     nCond <- resolveExpr cond
     nBody <- resolveStmt body
@@ -151,9 +168,12 @@ resolveExpr = \case
     nObject <- resolveExpr object
     pure $ Expr.ESet nObject name nValue
   Expr.EThis keyword _ -> do
-    distance <- resolveLocal keyword.lexeme
-    liftIO $ print "distance this"
-    liftIO $ print distance
+    distance <-
+      State.gets (.currentClass) >>= \case
+        CTNone -> do
+          Error.resolverError keyword "Can't use 'this' outside of a class."
+          pure 0
+        _ -> resolveLocal keyword.lexeme
     pure $ Expr.EThis keyword distance
   Expr.EUnary t expr -> Expr.EUnary t <$> resolveExpr expr
 

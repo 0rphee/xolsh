@@ -8,14 +8,13 @@ module Interpreter (evaluate, interpret) where
 
 import Control.Monad (void, when)
 import Control.Monad.Error.Class (catchError)
-import Control.Monad.Except (runExceptT, throwError)
+import Control.Monad.Except (runExceptT, throwError, tryError)
 import Control.Monad.State.Strict
   ( MonadIO (..)
   )
 import Control.Monad.State.Strict qualified as State
 import Control.Monad.Trans.Except (finallyE)
 import Data.ByteString.Char8 (ByteString)
-import Data.ByteString.Char8 qualified as B
 import Data.ByteString.Char8 qualified as BS
 import Data.Foldable (traverse_)
 import Data.Function ((&))
@@ -27,6 +26,7 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Clock.POSIX qualified as Time
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Debug.Trace (traceShowId, traceShowWith)
 import Environment
 import Error qualified
 import Expr qualified
@@ -92,17 +92,17 @@ evaluate = \case
     argVals <- traverse evaluate argumentsExprs
     case calleeVal of
       Expr.LCallable c -> do
-        when (V.length c.callable_params /= V.length argumentsExprs) $
+        when (c.callable_arity /= V.length argumentsExprs) $
           throwError $
             Error.RuntimeError
               paren
               ( "Expected "
-                  <> BS.pack (show $ V.length c.callable_params)
+                  <> BS.pack (show c.callable_arity)
                   <> " arguments but got "
                   <> BS.pack (show $ V.length argumentsExprs)
                   <> "."
               )
-        c.callable_call (call c.callable_params c.callable_closure) argVals
+        c.callable_call (call c.callable_closure) argVals
       _ -> throwError $ Error.RuntimeError paren "Can only call functions and classes."
   Expr.EGet object fieldName -> do
     evaluate object >>= \case
@@ -133,25 +133,36 @@ getInstanceFieldOrMethod fieldName instanceName fieldsRef methdsRef = do
       methds <- liftIO $ readIORef methdsRef
       case methds M.!? fieldName.lexeme of
         Just foundMthd -> do
-          case foundMthd of
-            cf@(Expr.CFunction {}) -> do
-              -- method.bind
-              newClosureEnv <-
-                liftIO (newIORef M.empty)
-                  <&> \mref -> LocalEnvironment mref cf.callable_closure
-              define "this" (Expr.LInstance fieldsRef instanceName methdsRef) newClosureEnv
-              pure $ Expr.LCallable $ cf {Expr.callable_closure = newClosureEnv}
-            _ ->
-              throwError $
-                Error.RuntimeError
-                  fieldName
-                  ( "Error in interpreter, field should not be class '" <> fieldName.lexeme <> "'."
-                  )
+          Expr.LCallable . fst
+            <$> bind fieldName fieldsRef instanceName methdsRef foundMthd
         Nothing ->
           throwError $
             Error.RuntimeError
               fieldName
               ("Undefined property '" <> fieldName.lexeme <> "'.")
+
+bind
+  :: TokenType.Token
+  -> IORef (Map ByteString Expr.LiteralValue)
+  -> ByteString
+  -> IORef (Map ByteString Expr.Callable)
+  -> Expr.Callable
+  -> InterpreterM (Expr.Callable, Expr.LiteralValue)
+bind fieldName fieldsRef instanceName methdsRef cf =
+  case cf of
+    Expr.CFunction {} -> do
+      newClosureEnv <-
+        liftIO (newIORef M.empty)
+          <&> \mref -> LocalEnvironment mref cf.callable_closure
+      let classInstance = Expr.LInstance fieldsRef instanceName methdsRef
+      define "this" classInstance newClosureEnv
+      pure (cf {Expr.callable_closure = newClosureEnv}, classInstance)
+    _ ->
+      throwError $
+        Error.RuntimeError
+          fieldName
+          ( "Error in interpreter, field should not be class '" <> fieldName.lexeme <> "'."
+          )
 
 setInstanceField
   :: TokenType.Token
@@ -208,54 +219,79 @@ execute = \case
     newEnvValueMapRef <- liftIO $ newIORef mempty
     prevEnv <- State.gets (.environment)
     executeBlock statements prevEnv (LocalEnvironment newEnvValueMapRef prevEnv)
-  Stmt.SClass name _methods -> do
+  Stmt.SClass klassName _methods -> do
     env <- State.gets (.environment)
-    define name.lexeme Expr.LNil env
+    define klassName.lexeme Expr.LNil env
+    mayInitMethd <- liftIO $ newIORef Nothing
     methodsRef <-
       V.foldM
         ( \acc next@(Stmt.FFunctionH fname _ _) -> do
-            (\fun -> M.insert fname.lexeme fun acc) <$> newFun next
+            let isInit = fname.lexeme == "init"
+            fun <- newFun next isInit
+            when isInit $
+              liftIO $
+                writeIORef mayInitMethd (Just (fname, fun))
+            pure $ M.insert fname.lexeme fun acc
         )
         M.empty
         _methods
         >>= (liftIO . newIORef)
+    mayInit <- liftIO (readIORef mayInitMethd)
+    let (classArity, initMaker) = case mayInit of
+          Just (initTok, originalInitMthd) -> do
+            let initM fieldMapRef args = do
+                  (initFunc, classInstance) <-
+                    bind initTok fieldMapRef klassName.lexeme methodsRef originalInitMthd
+                  initFunc.callable_call
+                    (call initFunc.callable_closure)
+                    args
+                  pure classInstance
+            (originalInitMthd.callable_arity, initM)
+          Nothing -> do
+            let initM fieldMapRef _args =
+                  pure $
+                    Expr.LInstance fieldMapRef klassName.lexeme methodsRef
+            (0, initM)
     let klass =
           Expr.LCallable $
             Expr.CClass
-              { Expr.callable_toString = name.lexeme
-              , Expr.callable_params = V.empty
-              , Expr.callable_call = \_evaluator _args -> do
+              { Expr.callable_toString = klassName.lexeme
+              , Expr.callable_arity = classArity
+              , Expr.callable_call = \_evaluator args -> do
                   fieldMapRef <- liftIO $ newIORef M.empty
-                  pure $ Expr.LInstance fieldMapRef name.lexeme methodsRef
+                  initMaker fieldMapRef args
               , Expr.class_methods = methodsRef
               }
-    assignFromMap name klass env.values
+    assignFromMap klassName klass env.values
   Stmt.SFunction f@(Stmt.FFunctionH name _params _body) -> do
     -- environment of the function where it is declared
-    function <- Expr.LCallable <$> newFun f
+    function <- Expr.LCallable <$> newFun f False
     State.get >>= \st -> define name.lexeme function st.environment
 
-newFun :: Stmt.FunctionH2 -> InterpreterM Expr.Callable
-newFun = \case
+newFun :: Stmt.FunctionH2 -> Bool -> InterpreterM Expr.Callable
+newFun fun isInitializer = case fun of
   Stmt.FFunctionH name params body -> do
     -- environment of the function where it is declared
     closure <- State.gets (.environment)
     let function =
           Expr.CFunction
             { Expr.callable_toString = "<fn " <> name.lexeme <> ">"
-            , Expr.callable_params = params
+            , Expr.callable_arity = V.length params
             , Expr.callable_closure = closure
-            , Expr.callable_call = \evaluator args -> evaluator body args
+            , Expr.callable_call = \evaluator args -> evaluator name body params args isInitializer
+            , Expr.callable_isInitializer = isInitializer
             }
     pure function
 
 call
-  :: Vector TokenType.Token
-  -> Environment
+  :: Environment
+  -> TokenType.Token
   -> Vector Stmt.Stmt2
+  -> Vector TokenType.Token
   -> Vector Expr.LiteralValue
+  -> Bool
   -> InterpreterM Expr.LiteralValue
-call params closure body args = do
+call closure funToken body params args isInitializer = do
   -- environment of the function before being called
   prevEnv <- State.gets (.environment)
   -- local environment of the function with arguments paired with parameters
@@ -267,19 +303,42 @@ call params closure body args = do
       & liftIO
       <&> (`LocalEnvironment` closure)
   -- if the function does not return via a return stmt, it will default to nil
-  catchError
-    ( executeBlock body prevEnv funcEnvironment >> pure Expr.LNil
-    )
-    $ \case
-      Error.RuntimeReturn value -> pure value
-      e -> throwError e
+  executeWithinEnvs within prevEnv funcEnvironment
+  where
+    within = do
+      tryError (executeStmts body) >>= \case
+        Left e ->
+          case e of
+            Error.RuntimeReturn v ->
+              if isInitializer
+                then execIfInit
+                else pure v
+            _ -> throwError e
+        Right () ->
+          if isInitializer
+            then execIfInit
+            else pure Expr.LNil
+    execIfInit = do
+      liftIO (readIORef closure.values) >>= \vmap ->
+        case vmap M.!? "this" of
+          Just thisInstance ->
+            pure thisInstance
+          Nothing ->
+            throwError $
+              Error.RuntimeError
+                funToken
+                "Error in interpreter, should have found reference to 'this' to return in _.init() class method."
 
 executeBlock
   :: Vector Stmt.Stmt2 -> Environment -> Environment -> InterpreterM ()
-executeBlock statements prevEnv tempEnv = do
+executeBlock statements = executeWithinEnvs (executeStmts statements)
+
+executeWithinEnvs
+  :: InterpreterM a -> Environment -> Environment -> InterpreterM a
+executeWithinEnvs action prevEnv tempEnv = do
   State.modify' $ \st ->
     st {environment = tempEnv}
-  finallyE (executeStmts statements) $ do
+  finallyE action $ do
     State.modify' $ \st -> st {environment = prevEnv}
 
 interpret :: Vector Stmt.Stmt2 -> IO Error.ErrorPresent
@@ -304,8 +363,9 @@ interpret statements = do
           , Expr.LCallable $
               Expr.CFunction
                 { Expr.callable_toString = "<native fn>"
-                , Expr.callable_params = V.empty
+                , Expr.callable_arity = 0
                 , Expr.callable_closure = GlobalEnvironment globalsRef
+                , Expr.callable_isInitializer = False
                 , Expr.callable_call = \_evaluator _args ->
                     -- realToFrac & fromIntegral treat NominalDiffTime as seconds
                     Expr.LNumber . realToFrac <$> liftIO Time.getPOSIXTime
