@@ -67,6 +67,11 @@ data Expr (phase :: IPhase)
     -- >   Token -- name
     -- >   Expr phase -- value
     ESet !(Expr phase) !Token !(Expr phase)
+  | -- | > ESuper
+    -- >   Token -- keyword
+    -- >   !(XEnvDistance phase)
+    -- >   Token -- method
+    ESuper !Token !(XEnvDistance phase) !Token
   | -- | > EThis
     -- >   Token -- keyword
     -- >   XenvDistance phase -- distance

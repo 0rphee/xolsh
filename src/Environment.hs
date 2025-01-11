@@ -10,6 +10,7 @@ module Environment
   , assignAt
   , assignFromMap
   , define
+  , checkMethodChain
   )
 where
 
@@ -18,6 +19,7 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.State.Class qualified as State
 import Control.Monad.State.Strict (StateT)
 import Data.ByteString.Char8 (ByteString)
+import Data.ByteString.Char8 qualified as B
 import Data.IORef
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
@@ -72,11 +74,34 @@ lookUpVariable name distance =
           getFromMap name environment.values
         _ ->
           case environment of
-            GlobalEnvironment _ ->
+            GlobalEnvironment _ -> do
               -- should never happen, verified by resolver
               -- getFromMap name _mapref
-              throwError $ Error.RuntimeError name "Failure in resolver, bug in interpreter"
+              throwError $
+                Error.RuntimeError
+                  name
+                  ( "Failure in resolver, bug in interpreter (lookUpVariable)."
+                      <> B.pack (show name)
+                      <> " "
+                      <> B.pack (show distance)
+                      <> "."
+                  )
             LocalEnvironment _ enc -> getAt (dist - 1) enc
+
+checkMethodChain
+  :: ByteString -> ClassMethodChain -> InterpreterM (Maybe Expr.Callable)
+checkMethodChain fieldName = go
+  where
+    go = \case
+      ClassNoSuper v -> common v
+      ClassWithSuper v n ->
+        common v >>= \case
+          Nothing -> go n
+          just -> pure just
+      where
+        common
+          :: IORef (Map ByteString Expr.Callable) -> InterpreterM (Maybe Expr.Callable)
+        common ref = liftIO (readIORef ref) >>= \m -> pure (m M.!? fieldName)
 
 assignAt
   :: Int -> TokenType.Token -> Expr.LiteralValue -> Environment -> InterpreterM ()
@@ -90,8 +115,9 @@ assignAt dist name value environment = do
       if count == 0
         then pure currEnv.values
         else case currEnv of
-          GlobalEnvironment _ ->
-            throwError $ Error.RuntimeError name "Failure in resolver, bug in interpreter"
+          GlobalEnvironment _ -> do
+            throwError $
+              Error.RuntimeError name "Failure in resolver, bug in interpreter (assignAt)."
           LocalEnvironment _ enc -> getAncestor (count - 1) enc
 
 assignFromMap
@@ -109,8 +135,8 @@ assignFromMap name value mapRef =
 
 getFromMap
   :: TokenType.Token
-  -> IORef (Map ByteString Expr.LiteralValue)
-  -> InterpreterM Expr.LiteralValue
+  -> IORef (Map ByteString a)
+  -> InterpreterM a
 getFromMap name ref =
   liftIO (readIORef ref) >>= \m -> do
     case m M.!? name.lexeme of

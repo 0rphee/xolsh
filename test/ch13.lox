@@ -4,7 +4,22 @@ class Doughnut {
   }
 }
 
-class BostonCream < Doughnut {}
+class BostonCream < Doughnut {
+  cook() {
+    super.cook();
+    print "Pipe full of custard and coat with chocolate.";
+  }
+}
 
 BostonCream().cook();
+
+
+class Eclair {
+  cook() {
+    super.cook();
+    print "Pipe full of crème pâtissière.";
+  }
+}
+
+Eclair().cook();
 

@@ -101,7 +101,7 @@ classDeclaration = do
   superclass <-
     safePeek >>= \case
       Just (Token LESS _ _) ->
-        advance >> Just . (,()) <$> consume IDENTIFIER "expect superclass name."
+        advance >> Just . (,()) <$> consume IDENTIFIER "Expect superclass name."
       _ -> pure Nothing
   consume LEFT_BRACE "Expect '{' before class body.."
   methods <- getMethods VB.empty
@@ -336,6 +336,10 @@ primary = do
     Just (Token NIL _ _) -> advance >> pure (ELiteral LNil)
     Just (Token (NUMBER lit) _ _) -> advance >> pure (ELiteral $ LNumber lit)
     Just (Token (STRING lit) _ _) -> advance >> pure (ELiteral $ LString lit)
+    Just keyword@(Token SUPER _ _) -> do
+      advance >> consume DOT "Expect '.' after 'super'."
+      method <- consume IDENTIFIER "Expect superclass method name."
+      pure $ ESuper keyword () method
     Just tok@(Token THIS _ _) -> advance >> pure (EThis tok ())
     Just tok@(Token IDENTIFIER _ _) -> advance >> pure (EVariable tok ())
     Just (Token LEFT_PAREN _ _) ->

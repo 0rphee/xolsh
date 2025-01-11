@@ -10,6 +10,7 @@ import Data.ByteString (ByteString)
 import Data.Foldable (traverse_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
+import Data.Maybe (isJust)
 import Data.Vector (Vector)
 import Error qualified
 import Expr qualified
@@ -26,6 +27,7 @@ data FunctionType
 data ClassType
   = CTNone
   | CTClass
+  | CTSubclass
 
 data ResolverState = ResolverState
   { scopes :: ![Map ByteString Bool]
@@ -62,7 +64,11 @@ resolveStmt = \case
       Just (superclassTok, ()) -> do
         when (superclassTok.lexeme == name.lexeme) $
           Error.resolverError superclassTok "A class can't inherit from itself."
-        Just . (superclassTok,) <$> resolveVariableName superclassTok
+        State.modify' $ \st -> st {currentClass = CTSubclass} -- TODO
+        nSuperClass <- Just . (superclassTok,) <$> resolveVariableName superclassTok
+        beginScope -- start scope for "super"
+        define (TokenType.Token TokenType.SUPER "super" 0) -- TODO remove?
+        pure nSuperClass
       Nothing -> pure Nothing
 
     beginScope
@@ -85,6 +91,8 @@ resolveStmt = \case
         )
         _methods
     endScope
+
+    when (isJust nSuperclass) endScope -- end scope for "super"
     State.modify' $ \st -> st {currentClass = enclosingClass}
     pure $ Stmt.SClass name nSuperclass nMethods
   Stmt.SVar name initializer -> do
@@ -177,6 +185,15 @@ resolveExpr = \case
     nValue <- resolveExpr value
     nObject <- resolveExpr object
     pure $ Expr.ESet nObject name nValue
+  Expr.ESuper keyword () mthd -> do
+    State.gets (.currentClass) >>= \case
+      CTNone ->
+        Error.resolverError keyword "Can't use 'super' outside of a class."
+      CTClass ->
+        Error.resolverError keyword "Can't use 'super' in a class with no superclass."
+      CTSubclass -> pure ()
+    kDist <- resolveLocal keyword.lexeme
+    pure $ Expr.ESuper keyword kDist mthd -- TODO
   Expr.EThis keyword _ -> do
     distance <-
       State.gets (.currentClass) >>= \case

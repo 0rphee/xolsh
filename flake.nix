@@ -45,9 +45,15 @@
               }
               ''
                 echo "Running tests..."
-                cabal build
-                cd craftinginterpreters
-                dart tool/bin/test.dart chap10_functions --interpreter ../dist-newstyle/build/aarch64-osx/ghc-9.6.5/xolsh-0.1.0.0/x/xolsh-exe/build/xolsh-exe/xolsh-exe
+
+                # chap12_classes
+                # chap11_resolving
+                # chap13_inheritance
+ 
+                cd craftinginterpreters 
+                dart tool/bin/test.dart chap13_inheritance --interpreter ../dist-newstyle/build/aarch64-osx/ghc-9.6.5/xolsh-0.1.0.0/x/xolsh-exe/build/xolsh-exe/xolsh-exe
+                cd ..
+
                 echo "Tests completed successfully."
                 touch $out
               '';

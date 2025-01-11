@@ -49,6 +49,27 @@ evaluate = \case
         setInstanceField name evVal instanceFields
         pure evVal
       _ -> throwError $ Error.RuntimeError name "Only instances have fields."
+  Expr.ESuper keyword superDist methdName -> do
+    -- State.gets (.environment) >>= (`recPrintEnvs` 0)
+    lookUpVariable
+      (TokenType.Token TokenType.THIS "this" keyword.tline)
+      (superDist - 1)
+      >>= \case
+        Expr.LInstance fields instanceName mthdChain -> do
+          getInstanceFieldOrMethod methdName instanceName fields mthdChain
+          checkMethodChain methdName.lexeme mthdChain._superMethods >>= \case
+            Nothing ->
+              throwError $
+                Error.RuntimeError
+                  methdName
+                  ("Undefined property '" <> methdName.lexeme <> "'.")
+            Just m -> do
+              Expr.LCallable . fst <$> bind methdName fields instanceName mthdChain m
+        _ ->
+          throwError $
+            Error.RuntimeError
+              keyword
+              "Error in interpreter, bug while looking up 'this' for a 'super' call."
   Expr.EThis keyword distance -> do
     lookUpVariable keyword distance
   Expr.EGrouping expr -> evaluate expr
@@ -128,7 +149,7 @@ getInstanceFieldOrMethod fieldName instanceName fieldsRef classMethodChain = do
   case fields M.!? fieldName.lexeme of
     Just v -> pure v
     Nothing -> do
-      checkMethodchain classMethodChain >>= \case
+      checkMethodChain fieldName.lexeme classMethodChain >>= \case
         Just foundMthd -> do
           Expr.LCallable . fst
             <$> bind fieldName fieldsRef instanceName classMethodChain foundMthd
@@ -137,18 +158,6 @@ getInstanceFieldOrMethod fieldName instanceName fieldsRef classMethodChain = do
             Error.RuntimeError
               fieldName
               ("Undefined property '" <> fieldName.lexeme <> "'.")
-  where
-    checkMethodchain :: ClassMethodChain -> InterpreterM (Maybe Expr.Callable)
-    checkMethodchain = \case
-      ClassNoSuper v -> common v
-      ClassWithSuper v n ->
-        common v >>= \case
-          Nothing -> checkMethodchain n
-          just -> pure just
-      where
-        common
-          :: IORef (Map ByteString Expr.Callable) -> InterpreterM (Maybe Expr.Callable)
-        common ref = liftIO (readIORef ref) >>= \m -> pure (m M.!? fieldName.lexeme)
 
 bind
   :: TokenType.Token
