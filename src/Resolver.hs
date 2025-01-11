@@ -149,9 +149,8 @@ resolveVariableName name = do
     [] -> pure ()
     (closestScope : _) ->
       case closestScope M.!? name.lexeme of
-        Just v
-          | not v ->
-              Error.resolverError name "Can't read local variable in its own initializer."
+        Just False ->
+          Error.resolverError name "Can't read local variable in its own initializer."
         _ -> pure ()
   resolveLocal name.lexeme
 

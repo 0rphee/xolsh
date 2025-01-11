@@ -262,7 +262,13 @@ execute = \case
         _methods
         >>= (liftIO . newIORef)
         <&> superClassMethdChain
-    mayInit <- liftIO (readIORef mayInitMethd)
+    mayInit <-
+      liftIO (readIORef mayInitMethd) >>= \case
+        Nothing -> do
+          checkMethodChain "init" thisClassMethodsChain >>= \case
+            Just superInitMthd -> pure $ Just (TokenType.Token TokenType.IDENTIFIER "init" 0, superInitMthd) -- TODO cleaner way to pass the token (unnecessary?)
+            Nothing -> pure Nothing
+        just@(Just (a, b)) -> do pure just
     let (classArity, initMaker) = case mayInit of
           Just (initTok, originalInitMthd) -> do
             let initM fieldMapRef args = do
@@ -270,7 +276,7 @@ execute = \case
                     bind initTok fieldMapRef klassName.lexeme thisClassMethodsChain originalInitMthd
                   initFunc.callable_call (call initFunc.callable_closure) args
                   pure classInstance
-            (originalInitMthd.callable_arity, initM)
+            (Expr.callable_arity originalInitMthd, initM)
           Nothing -> do
             let initM fieldMapRef _args =
                   pure $
