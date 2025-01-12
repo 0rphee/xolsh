@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Expr
@@ -10,6 +11,8 @@ module Expr
   , Callable (..)
   , eqLiteralValue
   , XEnvDistance
+  , LoxRuntimeFunction (..)
+  , LoxRuntimeClass (..)
   )
 where
 
@@ -17,7 +20,7 @@ import Data.ByteString.Char8 (ByteString)
 import Data.IORef (IORef)
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
-import Environment (ClassMethodChain, Environment, InterpreterM)
+import Environment (Environment, InterpreterM)
 import Stmt qualified
 import TokenType (Token (..))
 
@@ -85,68 +88,61 @@ data Expr (phase :: IPhase)
     EVariable !Token !(XEnvDistance phase)
 
 data Callable
-  = CFunction
-      { callable_toString :: !ByteString
-      , callable_arity :: !Int
-      , callable_closure :: !Environment -- closure environment
-      , callable_isInitializer :: !Bool
-      , callable_call
-          :: ( Token -- function token
-               -> Vector Stmt.Stmt2 -- body of lox function
-               -> Vector Token -- parameters
-               -> Vector LiteralValue -- arguments
-               -> Bool -- isInitalizer
-               -> InterpreterM LiteralValue -- this function is ignored when calling native functions
-             )
-          -> Vector LiteralValue -- arguments
-          -> InterpreterM LiteralValue
-      }
-  | CClass
-      { callable_toString :: !ByteString
-      , callable_arity :: !Int
-      , callable_call
-          :: ( Token -- function token
-               -> Vector Stmt.Stmt2 -- body of lox function
-               -> Vector Token -- parameters
-               -> Vector LiteralValue -- arguments
-               -> Bool -- isInitalizer
-               -> InterpreterM LiteralValue -- this function is ignored when calling native functions
-             )
-          -> Vector LiteralValue -- arguments
-          -> InterpreterM LiteralValue
-      , class_methods :: !ClassMethodChain
-      }
+  = CFunction !LoxRuntimeFunction
+  | CClass !(IORef LoxRuntimeClass)
+  deriving (Eq)
 
-instance Eq Callable where
-  (==) = eqCallable
+data LoxRuntimeFunction = LRFunction
+  { fun_toString :: !ByteString
+  , fun_arity :: !Int
+  , fun_closure :: !Environment -- closure environment
+  , fun_isInitializer :: !Bool
+  , fun_call
+      :: ( Token -- function token
+           -> Vector Stmt.Stmt2 -- body of lox function
+           -> Vector Token -- parameters
+           -> Vector LiteralValue -- arguments
+           -> Bool -- isInitalizer
+           -> InterpreterM LiteralValue -- this function is ignored when calling native functions
+         )
+      -> Vector LiteralValue -- arguments
+      -> InterpreterM LiteralValue
+  }
 
-eqCallable :: Callable -> Callable -> Bool
-eqCallable x y =
-  case (x, y) of
-    ( CFunction name1 arity1 closure1 isinit1 _
-      , CFunction name2 arity2 closure2 isinit2 _
-      ) ->
-        (name1 == name2)
-          && (arity1 == arity2)
-          && (isinit1 == isinit2)
-          && closure1 == closure2
-    (CClass name1 arity1 _ methds1, CClass name2 arity2 _ methds2) ->
-      -- TODO superclasses
-      (name1 == name2)
-        && (arity1 == arity2)
-        && (methds1 == methds2)
-    _ -> False
+instance Eq LoxRuntimeFunction where
+  a == b =
+    (a.fun_arity == b.fun_arity)
+      && (a.fun_isInitializer == b.fun_isInitializer)
+      && (a.fun_toString == a.fun_toString)
+      && (a.fun_closure == b.fun_closure)
+
+data LoxRuntimeClass = LRClass
+  { class_name :: !ByteString
+  , class_arity :: !Int
+  , class_methods :: !(IORef (Map ByteString LoxRuntimeFunction))
+  , class_superclass :: !(Maybe (IORef LoxRuntimeClass))
+  , class_call
+      :: IORef LoxRuntimeClass -- reference to itself
+      -> Vector LiteralValue -- arguments
+      -> InterpreterM LiteralValue
+  }
+
+instance Eq LoxRuntimeClass where
+  a == b =
+    (a.class_arity == b.class_arity)
+      && (a.class_methods == b.class_methods)
+      && (a.class_name == a.class_name)
+      && (a.class_superclass == b.class_superclass)
 
 data LiteralValue
   = LNil
   | LBool !Bool
   | LString !ByteString
   | LNumber !Double
-  | LCallable Callable
+  | LCallable !Callable
   | LInstance
       { _LInstanceFields :: !(IORef (Map ByteString LiteralValue))
-      , _LInstanceClassName :: !ByteString
-      , _LInstanceMethods :: !ClassMethodChain
+      , _LInstanceClass :: !(IORef LoxRuntimeClass)
       }
 
 instance Eq LiteralValue where
@@ -160,8 +156,7 @@ eqLiteralValue a b = case (a, b) of
   -- Lox considers NaN equal to NaN, contrary to what (==) does (7.2.5)
   (LNumber x, LNumber y) -> if isNaN x then isNaN y else x == y
   (LCallable x, LCallable y) -> x == y
-  (LInstance fields1 parentClass1 mthds1, LInstance fields2 parentClass2 mthds2) ->
+  (LInstance fields1 mthds1, LInstance fields2 mthds2) ->
     (fields1 == fields2)
-      && (parentClass1 == parentClass2)
       && (mthds1 == mthds2)
   _ -> False

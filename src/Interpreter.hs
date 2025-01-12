@@ -44,27 +44,37 @@ evaluate = \case
   Expr.ESet object name value -> do
     evObj <- evaluate object
     case evObj of
-      Expr.LInstance instanceFields _ _methods -> do
+      Expr.LInstance instanceFields _methods -> do
         evVal <- evaluate value
         setInstanceField name evVal instanceFields
         pure evVal
       _ -> throwError $ Error.RuntimeError name "Only instances have fields."
   Expr.ESuper keyword superDist methdName -> do
     -- State.gets (.environment) >>= (`recPrintEnvs` 0)
+    superclass <-
+      lookUpVariable keyword superDist >>= \case
+        Expr.LCallable (Expr.CClass c) -> pure c
+        _ ->
+          throwError $
+            Error.RuntimeError
+              methdName
+              "Error in interpreter, looked for 'super' and found something different to a class"
+
     lookUpVariable
       (TokenType.Token TokenType.THIS "this" keyword.tline)
       (superDist - 1)
       >>= \case
-        Expr.LInstance fields instanceName mthdChain -> do
-          getInstanceFieldOrMethod methdName instanceName fields mthdChain
-          checkMethodChain methdName.lexeme mthdChain._superMethods >>= \case
+        Expr.LInstance fields thisInstanceClass -> do
+          checkMethodChain methdName.lexeme superclass >>= \case
             Nothing ->
               throwError $
                 Error.RuntimeError
                   methdName
                   ("Undefined property '" <> methdName.lexeme <> "'.")
-            Just m -> do
-              Expr.LCallable . fst <$> bind methdName fields instanceName mthdChain m
+            Just fun ->
+              Expr.LCallable . Expr.CFunction . fst
+                <$> bind fields thisInstanceClass fun
+        -- TODO what if it doesnt find afunction
         _ ->
           throwError $
             Error.RuntimeError
@@ -111,21 +121,30 @@ evaluate = \case
     argVals <- traverse evaluate argumentsExprs
     case calleeVal of
       Expr.LCallable c -> do
-        when (c.callable_arity /= V.length argumentsExprs) $
+        (callable_arity, callable_call) <- case c of
+          Expr.CClass ref -> do
+            liftIO (readIORef ref)
+              <&> (\cv -> (cv.class_arity, cv.class_call ref argVals))
+          Expr.CFunction f ->
+            pure
+              ( f.fun_arity
+              , f.fun_call (call f.fun_closure) argVals
+              )
+        when (callable_arity /= V.length argumentsExprs) $
           throwError $
             Error.RuntimeError
               paren
               ( "Expected "
-                  <> BS.pack (show c.callable_arity)
+                  <> BS.pack (show callable_arity)
                   <> " arguments but got "
                   <> BS.pack (show $ V.length argumentsExprs)
                   <> "."
               )
-        c.callable_call (call c.callable_closure) argVals
+        callable_call
       _ -> throwError $ Error.RuntimeError paren "Can only call functions and classes."
   Expr.EGet object fieldName -> do
     evaluate object >>= \case
-      Expr.LInstance fields instanceName methods -> getInstanceFieldOrMethod fieldName instanceName fields methods
+      Expr.LInstance fields methods -> getInstanceFieldOrMethod fieldName fields methods
       _ -> throwError $ Error.RuntimeError fieldName "Only instances have properties."
   Expr.EVariable name distance -> lookUpVariable name distance
   Expr.EAssign name exprValue distance -> do
@@ -140,19 +159,19 @@ evaluate = \case
 
 getInstanceFieldOrMethod
   :: TokenType.Token
-  -> ByteString
   -> IORef (Map ByteString Expr.LiteralValue)
-  -> ClassMethodChain
+  -> IORef Expr.LoxRuntimeClass
   -> InterpreterM Expr.LiteralValue
-getInstanceFieldOrMethod fieldName instanceName fieldsRef classMethodChain = do
+getInstanceFieldOrMethod fieldName fieldsRef classSuperclass = do
   fields <- liftIO $ readIORef fieldsRef
   case fields M.!? fieldName.lexeme of
     Just v -> pure v
     Nothing -> do
-      checkMethodChain fieldName.lexeme classMethodChain >>= \case
+      checkMethodChain fieldName.lexeme classSuperclass >>= \case
         Just foundMthd -> do
-          Expr.LCallable . fst
-            <$> bind fieldName fieldsRef instanceName classMethodChain foundMthd
+          Expr.LCallable . Expr.CFunction . fst
+            <$> bind fieldsRef classSuperclass foundMthd
+        -- TODO fix for when
         Nothing ->
           throwError $
             Error.RuntimeError
@@ -160,27 +179,17 @@ getInstanceFieldOrMethod fieldName instanceName fieldsRef classMethodChain = do
               ("Undefined property '" <> fieldName.lexeme <> "'.")
 
 bind
-  :: TokenType.Token
-  -> IORef (Map ByteString Expr.LiteralValue)
-  -> ByteString
-  -> ClassMethodChain
-  -> Expr.Callable
-  -> InterpreterM (Expr.Callable, Expr.LiteralValue)
-bind fieldName fieldsRef instanceName methdsChain cf =
-  case cf of
-    Expr.CFunction {} -> do
-      newClosureEnv <-
-        liftIO (newIORef M.empty)
-          <&> \mref -> LocalEnvironment mref cf.callable_closure
-      let classInstance = Expr.LInstance fieldsRef instanceName methdsChain
-      define "this" classInstance newClosureEnv
-      pure (cf {Expr.callable_closure = newClosureEnv}, classInstance)
-    _ ->
-      throwError $
-        Error.RuntimeError
-          fieldName
-          ( "Error in interpreter, field should not be class '" <> fieldName.lexeme <> "'."
-          )
+  :: IORef (Map ByteString Expr.LiteralValue)
+  -> IORef Expr.LoxRuntimeClass
+  -> Expr.LoxRuntimeFunction
+  -> InterpreterM (Expr.LoxRuntimeFunction, Expr.LiteralValue)
+bind fieldsRef classOfInstance runtimeFun = do
+  newClosureEnv <-
+    liftIO (newIORef M.empty)
+      <&> \mref -> LocalEnvironment mref runtimeFun.fun_closure
+  let classInstance = Expr.LInstance fieldsRef classOfInstance
+  define "this" classInstance newClosureEnv
+  pure (runtimeFun {Expr.fun_closure = newClosureEnv}, classInstance) -- TODO
 
 setInstanceField
   :: TokenType.Token
@@ -197,19 +206,23 @@ isTruthy = \case
   Expr.LBool v -> v
   _ -> True
 
-stringify :: Expr.LiteralValue -> ByteString
+stringify :: Expr.LiteralValue -> InterpreterM ByteString
 stringify = \case
-  Expr.LNil -> "nil"
+  Expr.LNil -> pure "nil"
   Expr.LNumber v ->
-    let str = BS.pack $ show v
-        (pstr, end) = BS.splitAt (BS.length str - 2) str
-     in if end == ".0"
-          then pstr
-          else str
-  Expr.LBool v -> if v then "true" else "false"
-  Expr.LString v -> v
-  Expr.LCallable c -> c.callable_toString
-  Expr.LInstance _ klassname _ -> klassname <> " instance"
+    pure $
+      let str = BS.pack $ show v
+          (pstr, end) = BS.splitAt (BS.length str - 2) str
+       in if end == ".0"
+            then pstr
+            else str
+  Expr.LBool v -> pure $ if v then "true" else "false"
+  Expr.LString v -> pure v
+  Expr.LCallable (Expr.CClass cref) -> liftIO (readIORef cref) <&> (.class_name)
+  Expr.LCallable (Expr.CFunction f) -> pure f.fun_toString
+  Expr.LInstance _ cref -> do
+    cname <- liftIO (readIORef cref) <&> (.class_name)
+    pure $ cname <> " instance"
 
 execute :: Stmt.Stmt2 -> InterpreterM ()
 execute = \case
@@ -220,7 +233,7 @@ execute = \case
       then execute thenBranch
       else traverse_ execute elseBranch
   Stmt.SPrint expression ->
-    evaluate expression >>= \value -> liftIO $ BS.putStrLn (stringify value)
+    evaluate expression >>= stringify >>= liftIO . BS.putStrLn
   Stmt.SReturn _ valueExpr -> do
     value <- fromMaybe Expr.LNil <$> traverse evaluate valueExpr
     throwError $ Error.RuntimeReturn value
@@ -237,79 +250,82 @@ execute = \case
     newEnvValueMapRef <- liftIO $ newIORef mempty
     prevEnv <- State.gets (.environment)
     executeBlock statements prevEnv (LocalEnvironment newEnvValueMapRef prevEnv)
-  Stmt.SClass klassName superclass _methods -> do
-    superClassMethdChain <- case superclass of
-      Nothing -> pure Environment.ClassNoSuper
+  Stmt.SClass klassName maySuperClassInfo _methods -> do
+    maySuperClass <- case maySuperClassInfo of
+      Nothing -> pure Nothing
       Just (superclassTok, dist) ->
         evaluate (Expr.EVariable superclassTok dist)
           >>= \case
-            Expr.LCallable (Expr.CClass {Expr.class_methods}) -> pure $ \curr -> Environment.ClassWithSuper curr class_methods
+            Expr.LCallable (Expr.CClass superclass) -> pure $ Just superclass
             _ -> throwError $ Error.RuntimeError superclassTok "Superclass must be a class."
     env <- State.gets (.environment)
     define klassName.lexeme Expr.LNil env
-    mayInitMethd <- liftIO $ newIORef Nothing
-    thisClassMethodsChain <-
+    (mayInitMethdThisClass, thisClassMethods) <-
       V.foldM
-        ( \acc next@(Stmt.FFunctionH fname _ _) -> do
+        ( \(_, acc) next@(Stmt.FFunctionH fname _ _) -> do
             let isInit = fname.lexeme == "init"
             fun <- newFun next isInit
-            when isInit $
-              liftIO $
-                writeIORef mayInitMethd (Just (fname, fun))
-            pure $ M.insert fname.lexeme fun acc
+            let mayInit = if isInit then Just fun else Nothing
+            pure (mayInit, M.insert fname.lexeme fun acc)
         )
-        M.empty
+        (Nothing, M.empty)
         _methods
-        >>= (liftIO . newIORef)
-        <&> superClassMethdChain
-    mayInit <-
-      liftIO (readIORef mayInitMethd) >>= \case
+        >>= traverse (liftIO . newIORef)
+    mayInitWSuper <-
+      case mayInitMethdThisClass of
         Nothing -> do
-          checkMethodChain "init" thisClassMethodsChain >>= \case
-            Just superInitMthd -> pure $ Just (TokenType.Token TokenType.IDENTIFIER "init" 0, superInitMthd) -- TODO cleaner way to pass the token (unnecessary?)
+          case maySuperClass of
             Nothing -> pure Nothing
-        just@(Just (a, b)) -> do pure just
-    let (classArity, initMaker) = case mayInit of
-          Just (initTok, originalInitMthd) -> do
-            let initM fieldMapRef args = do
+            Just superClass ->
+              checkMethodChain "init" superClass >>= \case
+                Just superInitMthd -> pure $ Just superInitMthd
+                Nothing -> pure Nothing
+        just -> do pure just
+    let (classArity, initMaker) = case mayInitWSuper of
+          Just originalInitMthd -> do
+            let initM fieldMapRef thisClassRef args = do
                   (initFunc, classInstance) <-
-                    bind initTok fieldMapRef klassName.lexeme thisClassMethodsChain originalInitMthd
-                  initFunc.callable_call (call initFunc.callable_closure) args
+                    bind fieldMapRef thisClassRef originalInitMthd
+                  initFunc.fun_call (call initFunc.fun_closure) args
                   pure classInstance
-            (Expr.callable_arity originalInitMthd, initM)
+            (originalInitMthd.fun_arity, initM)
           Nothing -> do
-            let initM fieldMapRef _args =
-                  pure $
-                    Expr.LInstance fieldMapRef klassName.lexeme thisClassMethodsChain
+            let initM fieldMapRef thisClassRef _args =
+                  pure $ Expr.LInstance fieldMapRef thisClassRef
             (0, initM)
-    let klass =
-          Expr.LCallable $
-            Expr.CClass
-              { Expr.callable_toString = klassName.lexeme
-              , Expr.callable_arity = classArity
-              , Expr.callable_call = \_evaluator args -> do
-                  fieldMapRef <- liftIO $ newIORef M.empty
-                  initMaker fieldMapRef args
-              , Expr.class_methods = thisClassMethodsChain
-              }
+    klass <-
+      liftIO $
+        Expr.LCallable . Expr.CClass
+          <$> ( newIORef $
+                  Expr.LRClass
+                    { Expr.class_name = klassName.lexeme
+                    , Expr.class_arity = classArity
+                    , Expr.class_call = \thisClassRef args -> do
+                        fieldMapRef <- liftIO $ newIORef M.empty
+                        initMaker fieldMapRef thisClassRef args
+                    , Expr.class_methods = thisClassMethods
+                    , Expr.class_superclass = maySuperClass
+                    }
+              )
+
     assignFromMap klassName klass env.values
   Stmt.SFunction f@(Stmt.FFunctionH name _params _body) -> do
     -- environment of the function where it is declared
-    function <- Expr.LCallable <$> newFun f False
+    function <- Expr.LCallable . Expr.CFunction <$> newFun f False
     State.get >>= \st -> define name.lexeme function st.environment
 
-newFun :: Stmt.FunctionH2 -> Bool -> InterpreterM Expr.Callable
+newFun :: Stmt.FunctionH2 -> Bool -> InterpreterM Expr.LoxRuntimeFunction
 newFun fun isInitializer = case fun of
   Stmt.FFunctionH name params body -> do
     -- environment of the function where it is declared
     closure <- State.gets (.environment)
     let function =
-          Expr.CFunction
-            { Expr.callable_toString = "<fn " <> name.lexeme <> ">"
-            , Expr.callable_arity = V.length params
-            , Expr.callable_closure = closure
-            , Expr.callable_call = \evaluator args -> evaluator name body params args isInitializer
-            , Expr.callable_isInitializer = isInitializer
+          Expr.LRFunction
+            { Expr.fun_toString = "<fn " <> name.lexeme <> ">"
+            , Expr.fun_arity = V.length params
+            , Expr.fun_closure = closure
+            , Expr.fun_call = \evaluator args -> evaluator name body params args isInitializer
+            , Expr.fun_isInitializer = isInitializer
             }
     pure function
 
@@ -391,15 +407,16 @@ interpret statements = do
         [
           ( "clock"
           , Expr.LCallable $
-              Expr.CFunction
-                { Expr.callable_toString = "<native fn>"
-                , Expr.callable_arity = 0
-                , Expr.callable_closure = GlobalEnvironment globalsRef
-                , Expr.callable_isInitializer = False
-                , Expr.callable_call = \_evaluator _args ->
-                    -- realToFrac & fromIntegral treat NominalDiffTime as seconds
-                    Expr.LNumber . realToFrac <$> liftIO Time.getPOSIXTime
-                }
+              Expr.CFunction $
+                Expr.LRFunction
+                  { Expr.fun_toString = "<native fn>"
+                  , Expr.fun_arity = 0
+                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_isInitializer = False
+                  , Expr.fun_call = \_evaluator _args ->
+                      -- realToFrac & fromIntegral treat NominalDiffTime as seconds
+                      Expr.LNumber . realToFrac <$> liftIO Time.getPOSIXTime
+                  }
           )
         ]
 
@@ -414,5 +431,28 @@ recPrintEnvs env count = case env of
   where
     printEnvRef :: IORef (Map ByteString Expr.LiteralValue) -> InterpreterM ()
     printEnvRef ref = do
-      liftIO (readIORef ref)
-        >>= liftIO . putStrLn . (\m -> show (M.map stringify m) <> " " <> show count)
+      mapv <- liftIO (readIORef ref)
+      stringMap <- traverse stringify mapv
+      liftIO . putStrLn $ show stringMap <> " " <> show count
+
+checkMethodChain
+  :: ByteString
+  -> IORef Expr.LoxRuntimeClass
+  -> InterpreterM (Maybe Expr.LoxRuntimeFunction)
+checkMethodChain fieldName = go
+  where
+    go :: IORef Expr.LoxRuntimeClass -> InterpreterM (Maybe Expr.LoxRuntimeFunction)
+    go ref = do
+      klass <- liftIO (readIORef ref)
+      checkMethods klass >>= \case
+        Just fun -> pure $ Just fun
+        Nothing -> case klass.class_superclass of
+          Nothing -> pure Nothing
+          Just supref -> go supref
+      where
+        checkMethods
+          :: Expr.LoxRuntimeClass
+          -> InterpreterM (Maybe Expr.LoxRuntimeFunction)
+        checkMethods klass = do
+          vmap <- liftIO (readIORef klass.class_methods)
+          pure (vmap M.!? fieldName)

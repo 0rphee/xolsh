@@ -5,12 +5,10 @@ module Environment
   ( InterpreterState (..)
   , InterpreterM
   , Environment (..)
-  , ClassMethodChain (..)
   , lookUpVariable
   , assignAt
   , assignFromMap
   , define
-  , checkMethodChain
   )
 where
 
@@ -51,14 +49,6 @@ data Environment
       }
   deriving (Show, Eq)
 
-data ClassMethodChain
-  = ClassNoSuper {this_methods :: IORef (Map ByteString Expr.Callable)}
-  | ClassWithSuper
-      { this_methods :: IORef (Map ByteString Expr.Callable)
-      , _superMethods :: ClassMethodChain
-      }
-  deriving (Eq)
-
 instance Show (IORef (Map ByteString Expr.LiteralValue)) where
   show _ = "iorefmap"
 
@@ -87,21 +77,6 @@ lookUpVariable name distance =
                       <> "."
                   )
             LocalEnvironment _ enc -> getAt (dist - 1) enc
-
-checkMethodChain
-  :: ByteString -> ClassMethodChain -> InterpreterM (Maybe Expr.Callable)
-checkMethodChain fieldName = go
-  where
-    go = \case
-      ClassNoSuper v -> common v
-      ClassWithSuper v n ->
-        common v >>= \case
-          Nothing -> go n
-          just -> pure just
-      where
-        common
-          :: IORef (Map ByteString Expr.Callable) -> InterpreterM (Maybe Expr.Callable)
-        common ref = liftIO (readIORef ref) >>= \m -> pure (m M.!? fieldName)
 
 assignAt
   :: Int -> TokenType.Token -> Expr.LiteralValue -> Environment -> InterpreterM ()
