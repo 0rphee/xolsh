@@ -21,7 +21,7 @@ import Data.Functor ((<&>))
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Time.Clock.POSIX qualified as Time
 import Data.Vector (Vector)
 import Data.Vector qualified as V
@@ -50,7 +50,6 @@ evaluate = \case
         pure evVal
       _ -> throwError $ Error.RuntimeError name "Only instances have fields."
   Expr.ESuper keyword superDist methdName -> do
-    -- State.gets (.environment) >>= (`recPrintEnvs` 0)
     superclass <-
       lookUpVariable keyword superDist >>= \case
         Expr.LCallable (Expr.CClass c) -> pure c
@@ -251,15 +250,22 @@ execute = \case
     prevEnv <- State.gets (.environment)
     executeBlock statements prevEnv (LocalEnvironment newEnvValueMapRef prevEnv)
   Stmt.SClass klassName maySuperClassInfo _methods -> do
+    origEnv <- State.gets (.environment)
+    define klassName.lexeme Expr.LNil origEnv
     maySuperClass <- case maySuperClassInfo of
       Nothing -> pure Nothing
-      Just (superclassTok, dist) ->
+      Just (superclassTok, dist) -> do
         evaluate (Expr.EVariable superclassTok dist)
           >>= \case
-            Expr.LCallable (Expr.CClass superclass) -> pure $ Just superclass
+            c@(Expr.LCallable (Expr.CClass superclassRef)) -> do
+              oldEnv <- State.gets (.environment)
+              newEnv <- do
+                superEnvRef <- liftIO $ newIORef M.empty
+                pure $ LocalEnvironment superEnvRef oldEnv
+              State.modify' $ \st -> st {environment = newEnv}
+              define "super" c newEnv
+              pure $ Just superclassRef
             _ -> throwError $ Error.RuntimeError superclassTok "Superclass must be a class."
-    env <- State.gets (.environment)
-    define klassName.lexeme Expr.LNil env
     (mayInitMethdThisClass, thisClassMethods) <-
       V.foldM
         ( \(_, acc) next@(Stmt.FFunctionH fname _ _) -> do
@@ -281,6 +287,7 @@ execute = \case
                 Just superInitMthd -> pure $ Just superInitMthd
                 Nothing -> pure Nothing
         just -> do pure just
+    when (isJust maySuperClass) $ State.modify' $ \st -> st {environment = st.environment._enclosing} -- restore "super" binding
     let (classArity, initMaker) = case mayInitWSuper of
           Just originalInitMthd -> do
             let initM fieldMapRef thisClassRef args = do
@@ -308,7 +315,7 @@ execute = \case
                     }
               )
 
-    assignFromMap klassName klass env.values
+    assignFromMap klassName klass origEnv.values
   Stmt.SFunction f@(Stmt.FFunctionH name _params _body) -> do
     -- environment of the function where it is declared
     function <- Expr.LCallable . Expr.CFunction <$> newFun f False
