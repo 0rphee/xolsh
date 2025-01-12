@@ -28,6 +28,7 @@ import Data.Vector qualified as V
 import Environment
 import Error qualified
 import Expr qualified
+import Numeric qualified
 import Scanner (whileM)
 import Stmt qualified
 import TokenType qualified
@@ -209,8 +210,10 @@ stringify :: Expr.LiteralValue -> InterpreterM ByteString
 stringify = \case
   Expr.LNil -> pure "nil"
   Expr.LNumber v ->
+    -- see https://docs.oracle.com/javase/8/docs/api/java/lang/Double.html#toString-double-
+    -- not exactly the same as jlox due to Double.toString() semantics, but this satisfies the jlox tests
     pure $
-      let str = BS.pack $ show v
+      let str = BS.pack $ Numeric.showFFloat Nothing v ""
           (pstr, end) = BS.splitAt (BS.length str - 2) str
        in if end == ".0"
             then pstr
