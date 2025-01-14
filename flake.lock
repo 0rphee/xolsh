@@ -72,6 +72,31 @@
         "type": "github"
       }
     },
+    "ghc-wasm-meta": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "host": "gitlab.haskell.org",
+        "lastModified": 1736814899,
+        "narHash": "sha256-5ecjTrtyFRjFSSt39aUUfvBAiLmmR0f3IuhhMcI4kXE=",
+        "owner": "haskell-wasm",
+        "repo": "ghc-wasm-meta",
+        "rev": "a9102d59d00bc87550dda902c8084a74f9742c00",
+        "type": "gitlab"
+      },
+      "original": {
+        "host": "gitlab.haskell.org",
+        "owner": "haskell-wasm",
+        "repo": "ghc-wasm-meta",
+        "type": "gitlab"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1736755442,
@@ -93,6 +118,7 @@
         "clean-devshell": "clean-devshell",
         "dart": "dart",
         "flake-utils": "flake-utils_2",
+        "ghc-wasm-meta": "ghc-wasm-meta",
         "nixpkgs": "nixpkgs"
       }
     },

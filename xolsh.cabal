@@ -36,9 +36,17 @@ common common-options
     -flate-specialise
     -funbox-strict-fields
     -fexpose-all-unfoldings
-    -threaded
-    -with-rtsopts=-N
     -Wunused-packages
+
+  -- !arch(wasm32) || !os(wasi)
+  if arch(wasm32)
+    ghc-options:
+      -O2
+      -single-threaded
+  else
+    ghc-options:
+      -threaded
+      -with-rtsopts=-N
 
   default-extensions:
     OverloadedStrings

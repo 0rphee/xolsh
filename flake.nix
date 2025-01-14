@@ -8,6 +8,10 @@
 
     dart.url = "github:roman-vanesyan/dart-overlay";
     dart.inputs.nixpkgs.follows = "nixpkgs";
+
+    ghc-wasm-meta.url = "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
+    ghc-wasm-meta.inputs.nixpkgs.follows = "nixpkgs";
+    ghc-wasm-meta.inputs.flake-utils.follows = "flake-utils";
   };
 
   outputs =
@@ -16,6 +20,7 @@
       flake-utils,
       nixpkgs,
       dart,
+      ghc-wasm-meta,
       ...
     }@inputs:
     flake-utils.lib.eachDefaultSystem (
@@ -40,6 +45,9 @@
           pkgs.gnumake
           pkgs.dartpkgs."2.19.6"
           jlox-test
+          ghc-wasm-meta.packages.${system}.wasm32-wasi-ghc-9_10
+          ghc-wasm-meta.packages.${system}.wasm32-wasi-cabal-9_10
+          pkgs.wasmtime
         ];
       in
       {

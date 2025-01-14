@@ -16,6 +16,7 @@ import Parser (runParse)
 import Resolver (runResolver)
 import Scanner
 import System.Exit qualified
+import System.IO (hFlush, stdout)
 
 newtype Global = Global {unGlobal :: IORef.IORef GlobalState} -- had errors: True, else False
 
@@ -55,7 +56,7 @@ runFile path = do
 
 runPrompt :: MonadIO m => ReaderT Global m ()
 runPrompt = forever $ do
-  liftIO $ B.putStr "> "
+  liftIO $ B.putStr "> " >> hFlush stdout
   line <- liftIO B.getLine
   if B.null line
     then liftIO $ B.putStr "\n"
