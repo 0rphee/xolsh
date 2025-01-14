@@ -1,9 +1,26 @@
 {
   "nodes": {
+    "clean-devshell": {
+      "locked": {
+        "lastModified": 1681924133,
+        "narHash": "sha256-XZNHuzb1/nP3Tu/BjS4K01wHq/5NL9Ot1ErJtWyir8o=",
+        "owner": "ZentriaMC",
+        "repo": "clean-devshell",
+        "rev": "ca9449a77eb1898e66230e2bbec1512bb577d701",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ZentriaMC",
+        "repo": "clean-devshell",
+        "type": "github"
+      }
+    },
     "dart": {
       "inputs": {
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": [
+          "nixpkgs"
+        ]
       },
       "locked": {
         "lastModified": 1735042988,
@@ -57,36 +74,26 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1728492678,
-        "narHash": "sha256-9UTxR8eukdg+XZeHgxW5hQA9fIKHsKCdOIUycTryeVw=",
-        "owner": "NixOS",
+        "lastModified": 1736755442,
+        "narHash": "sha256-a3MMEY7i/wdF0gb7WFNTn6onzaiMOvwj7OerRVenA8o=",
+        "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "5633bcff0c6162b9e4b5f1264264611e950c8ec7",
+        "rev": "ef56e777fedaa4da8c66a150081523c5de1e0171",
         "type": "github"
       },
       "original": {
-        "id": "nixpkgs",
-        "ref": "nixos-unstable",
-        "type": "indirect"
-      }
-    },
-    "nixpkgs_2": {
-      "locked": {
-        "lastModified": 0,
-        "narHash": "sha256-0XovF7BYP50rTD2v4r55tR5MuBLet7q4xIz6Rgh3BBU=",
-        "path": "/nix/store/djws0nzaa2g7xz9iv90ja8yxqddm37yy-source",
-        "type": "path"
-      },
-      "original": {
-        "id": "nixpkgs",
-        "type": "indirect"
+        "owner": "nixos",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
       }
     },
     "root": {
       "inputs": {
+        "clean-devshell": "clean-devshell",
         "dart": "dart",
         "flake-utils": "flake-utils_2",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs"
       }
     },
     "systems": {

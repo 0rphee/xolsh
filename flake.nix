@@ -1,7 +1,13 @@
 {
   inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+
     flake-utils.url = "github:numtide/flake-utils";
+
+    clean-devshell.url = "github:ZentriaMC/clean-devshell";
+
     dart.url = "github:roman-vanesyan/dart-overlay";
+    dart.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -21,42 +27,29 @@
             dart.overlays.default
           ];
         };
-        buildInputs = [
-          pkgs.jdk23
+        jlox-test = pkgs.writeShellScriptBin "jlox-test" ''
+          #!/usr/bin/env bash
+          cabal build xolsh-exe
+          EXE_PATH=$(cabal list-bin xolsh-exe)
+          cd craftinginterpreters
+          dart tool/bin/test.dart chap13_inheritance --interpreter $EXE_PATH
+          unset EXE_PATH && cd .. && echo "Tests completed successfully."
+        '';
+        mkShell = pkgs.callPackage inputs.clean-devshell.lib.mkDevShell { };
+        packages = [
           pkgs.gnumake
           pkgs.dartpkgs."2.19.6"
+          jlox-test
         ];
       in
       {
-        devShells.default = pkgs.mkShell {
-          name = "devshell";
-          inherit buildInputs;
+        # pkgs.mkShell
+        devShells.default = mkShell {
+          name = "xolsh";
+          inherit packages;
           shellHook = ''
-            echo "Welcome to the development shell"
+            echo "Welcome to the development shell."
           '';
-        };
-
-        checks = {
-          default =
-            pkgs.runCommand "test-suite"
-              {
-                inherit buildInputs;
-                PATH = pkgs.lib.makeBinPath buildInputs;
-              }
-              ''
-                echo "Running tests..."
-
-                # chap12_classes
-                # chap11_resolving
-                # chap13_inheritance
- 
-                cd craftinginterpreters 
-                dart tool/bin/test.dart chap13_inheritance --interpreter ../dist-newstyle/build/aarch64-osx/ghc-9.6.5/xolsh-0.1.0.0/x/xolsh-exe/build/xolsh-exe/xolsh-exe
-                cd ..
-
-                echo "Tests completed successfully."
-                touch $out
-              '';
         };
       }
     );
