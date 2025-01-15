@@ -1,3 +1,12 @@
-packages: ./
+packages:
+  ./
+  ./web
 
 index-state: hackage.haskell.org 2024-07-13T19:04:01Z
+
+if !arch(wasm32)
+  source-repository-package
+    type: git
+    location: https://github.com/konn/ghc-wasm-earthly
+    tag: 73f7dfa745d040e30f6652dac27bedd6c934fc8a
+    subdir: ghc-wasm-compat

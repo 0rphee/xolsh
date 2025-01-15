@@ -48,6 +48,10 @@
           ghc-wasm-meta.packages.${system}.wasm32-wasi-ghc-9_10
           ghc-wasm-meta.packages.${system}.wasm32-wasi-cabal-9_10
           pkgs.wasmtime
+
+          # for https://gitlab.haskell.org/ghc/ghc/-/blob/master/utils/jsffi/post-link.mjs
+          pkgs.nodejs
+          pkgs.esbuild
         ];
       in
       {

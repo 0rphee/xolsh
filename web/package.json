@@ -1,0 +1,22 @@
+{
+  "name": "xolsh-web",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "./build.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0rphee/xolsh..git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/0rphee/xolsh.git/issues"
+  },
+  "homepage": "https://github.com/0rphee/xolsh.git#readme",
+  "description": "",
+  "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.3.0"
+  }
+}

@@ -1,0 +1,43 @@
+cabal-version: 3.0
+name: xolsh-web
+version: 0.1.0.0
+-- synopsis:
+-- description:
+license: BSD-3-Clause
+license-file: LICENSE
+author: 0rphee
+maintainer: 0rph3e@proton.me
+-- copyright:
+category: Web
+build-type: Simple
+extra-doc-files: CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/0rphee/xolsh.git
+
+common warnings
+  ghc-options: -Wall
+
+executable xolsh-web
+  import: warnings
+  hs-source-dirs: app
+  default-language: GHC2021
+  main-is: Main.hs
+  build-depends:
+    base >=4.20.0.0
+
+  if arch(wasm32)
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=plus3,--export=main2"
+
+    -- provide  import GHC.Wasm.Prim
+    build-depends: ghc-experimental
+  else
+    ghc-options:
+      -fplugin=GHC.Wasm.FFI.Plugin
+
+    -- provide  import GHC.Wasm.Prim
+    build-depends: ghc-wasm-compat

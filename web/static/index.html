@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>xolsh</title>
+    <style>
+      body {
+        display: flex;
+        justify-content: space-between;
+        padding: 20px;
+        font-family: Arial, sans-serif;
+      }
+      textarea {
+        width: 45%;
+        height: 200px;
+        font-size: 14px;
+      }
+      button {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 10px 20px;
+        font-size: 16px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <textarea id="left-box" placeholder="Enter text here..."></textarea>
+    <textarea id="right-box" placeholder="Output will appear here..." readonly></textarea>
+    <button id="write-button">Write to File</button>
+    <script src="index.js" type="module"></script>
+  </body>
+</html>
