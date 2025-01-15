@@ -7,21 +7,29 @@ import {
   ConsoleStdout,
   PreopenDirectory,
 } from "@bjorn3/browser_wasi_shim";
-import ghc_wasm_jsffi from "./ghc_wasm_jsffi.js";
-
-const args = [];
-const env = [];
+// import ghc_wasm_jsffi from "./ghc_wasm_jsffi.js";
 
 const loxFilename = "hello.lox";
-const loxFile = new File(new TextEncoder("utf-8").encode(`print "hello";`));
+const originalLoxFileStr = `print "hello";`;
+const loxFile = new File(new TextEncoder("utf-8").encode(originalLoxFileStr));
 
-const stdout = ConsoleStdout.lineBuffered((msg) =>
-  console.log(`[WASI stdout] ${msg}`),
-);
+const buttonElement = document.getElementById("write-button");
+const leftBox = document.getElementById("left-box");
+const rightBox = document.getElementById("right-box");
+leftBox.value = originalLoxFileStr;
+rightBox.value = "";
 
-const stderr = ConsoleStdout.lineBuffered((msg) =>
-  console.warn(`[WASI stderr] ${msg}`),
-);
+const args = ["xolsh-exe.wasm", "hello.lox"];
+const env = [];
+
+const stdout = ConsoleStdout.lineBuffered((msg) => {
+  rightBox.value += `[WASI stdout] ${msg}\n`;
+  // console.log(`[WASI stdout] ${msg}`);
+});
+const stderr = ConsoleStdout.lineBuffered((msg) => {
+  rightBox.value += `[WASI stderr] ${msg}\n`;
+  // console.warn(`[WASI stderr] ${msg}`);
+});
 
 const fds = [
   new OpenFile(new File([])), // stdin
@@ -30,54 +38,35 @@ const fds = [
   new PreopenDirectory("/", [[loxFilename, loxFile]]),
 ];
 const options = { debug: false };
-const wasi = new WASI(args, env, fds, options);
-
 const instance_exports = {};
-const { instance } = await WebAssembly.instantiateStreaming(
-  fetch("xolsh-web.wasm"),
-  {
-    wasi_snapshot_preview1: wasi.wasiImport,
-    ghc_wasm_jsffi: ghc_wasm_jsffi(instance_exports),
-  },
+const wasmSource = await fetch("xolsh-exe.wasm").then((resp) =>
+  resp.arrayBuffer(),
 );
 
-Object.assign(instance_exports, instance.exports);
-
-wasi.initialize(instance);
-
-const buttonElement = document.getElementById("write-button");
-const leftBox = document.getElementById("left-box");
-const rightBox = document.getElementById("right-box");
-
-rightBox.value = new TextDecoder().decode(
-  new OpenFile(loxFile).fd_read(loxFile.size).data,
-);
+const runWasi = async () => {
+  const wasi = new WASI(args, env, fds, options);
+  const instance = await (async () => {
+    const { instance } = await WebAssembly.instantiate(wasmSource, {
+      wasi_snapshot_preview1: wasi.wasiImport,
+      // ghc_wasm_jsffi: ghc_wasm_jsffi(instance_exports),
+    });
+    // instance.exports = new Object();
+    Object.assign(instance_exports, instance.exports);
+    return instance;
+  })();
+  wasi.start(instance);
+};
 
 const encode = (str) => new TextEncoder().encode(str);
 const decode = (str) => new TextDecoder().decode(str);
 
+await runWasi();
 // Event listener for the button
 buttonElement.addEventListener("click", async () => {
-  const openFile = new OpenFile(loxFile);
-
-  const leftBoxContent = leftBox.value;
-  console.log("leftbox", leftBoxContent);
-  const encoded = encode(leftBoxContent);
-
-  console.log("fd_write", openFile.fd_write(encoded));
-  // openFile.fd_close();
-
-  const buffer = openFile.fd_read(loxFile.size).data;
-  console.log("buffer after write", buffer);
-
-  const content = decode(buffer);
-  console.log("content after write", content);
-
-  rightBox.value = content;
-
-  console.log(`[WASI] Content written to ${loxFilename}:`, content);
-  console.log("file", loxFile.data, decode(loxFile.data));
+  loxFile.data = encode(leftBox.value);
+  rightBox.value = "";
+  await runWasi();
 });
 
-await instance.exports.main2();
-console.log(await instance.exports.plus3(3));
+// await instance.exports.main2();
+// console.log(await instance.exports.plus3(3));
