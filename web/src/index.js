@@ -8,9 +8,7 @@ import {
   ConsoleStdout,
   PreopenDirectory,
 } from "@bjorn3/browser_wasi_shim";
-import { basicSetup } from "codemirror";
-import { EditorView } from "@codemirror/view";
-import { boysAndGirls } from "thememirror";
+import { createEditorView } from "./editorconf.js";
 
 const loxFilename = "hello.lox";
 const originalLoxFileStr = `print "hello";`;
@@ -18,24 +16,19 @@ const loxFile = new File(new TextEncoder("utf-8").encode(originalLoxFileStr));
 
 const buttonElement = document.getElementById("run-button");
 const editorContainer = document.getElementById("content");
-const rightBox = document.getElementById("right-box");
-rightBox.value = "";
+const outputBox = document.getElementById("output-box");
+outputBox.value = "";
 
-const editorView = new EditorView({
-  doc: originalLoxFileStr,
-  extensions: [basicSetup, boysAndGirls],
-  parent: editorContainer,
-});
-
+const editorView = createEditorView(editorContainer, originalLoxFileStr);
 const wasiArgs = ["xolsh-exe.wasm", "hello.lox"];
 const wasiEnv = [];
 
 const wasiStdout = ConsoleStdout.lineBuffered((msg) => {
-  rightBox.value += `[WASI stdout] ${msg}\n`;
+  outputBox.value += `[WASI stdout] ${msg}\n`;
   // console.log(`[WASI stdout] ${msg}`);
 });
 const wasiStderr = ConsoleStdout.lineBuffered((msg) => {
-  rightBox.value += `[WASI stderr] ${msg}\n`;
+  outputBox.value += `[WASI stderr] ${msg}\n`;
   // console.warn(`[WASI stderr] ${msg}`);
 });
 
@@ -66,13 +59,12 @@ const runWasi = async () => {
 };
 
 const encode = (str) => new TextEncoder().encode(str);
-const decode = (str) => new TextDecoder().decode(str);
 
 await runWasi();
 // Event listener for the button
 buttonElement.addEventListener("click", async () => {
   loxFile.data = encode(editorView.state.doc);
-  rightBox.value = "";
+  outputBox.value = "";
   await runWasi();
 });
 

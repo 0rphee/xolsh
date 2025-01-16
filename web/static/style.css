@@ -1,10 +1,21 @@
+:root {
+  color-scheme: light dark;
+  --normal-fg: light-dark(black, white);
+  --normal-bg: light-dark(white, black);
+
+  --inverse-fg: var(--normal-bg);
+  --inverse-bg: var(--normal-fg);
+  --caret-color: #E60065;
+}
+
 body {
   display: flex;
   flex-direction: column;
   height: 100vh;
   margin: 0;
   font-family: monospace;
-  color: white;
+  color: var(--normal-fg);
+  background-color: var(--inverse-bg);
   gap: 1px;
 }
 
@@ -14,7 +25,7 @@ header {
   justify-content: space-between;
   align-items: center;
   padding: 1.5rem;
-  background-color: black;
+  background-color: var(--normal-bg);
 }
 
 a {
@@ -46,8 +57,8 @@ button {
   font-size: 1rem;
   border: 0;
   /* border-radius: 0.5rem; */
-  background-color: white;
-  color: black;
+  background-color: var(--inverse-bg);
+  color: var(--inverse-fg);
   padding: 0.5rem 1.2rem;
 }
 
@@ -68,9 +79,9 @@ textarea {
   padding: 10px;
   height: 100%;
   width: calc(50% - 1px);
-  color: white;
-  background-color: black;
-  caret-color: #E60065;
+  color: var(--normal-fg);
+  background-color: var(--normal-bg);
+  caret-color: var(--caret-color);
   box-sizing: border-box;
 }
 
@@ -83,7 +94,7 @@ textarea:focus-visible {
   height: 100%;
   margin: 0px;
   overflow: hidden;
-  background-color: white;
+  background-color: var(--inverse-bg);
   gap: 1px;
 }
 
@@ -99,4 +110,8 @@ textarea:focus-visible {
 
 .cm-scroller {
   overflow: auto;
+}
+
+.cm-editor .cm-cursor {
+  border-left-color: var(--caret-color);
 }
