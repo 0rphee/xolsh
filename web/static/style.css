@@ -53,6 +53,7 @@ header>div {
 }
 
 button {
+  font-family: monospace;
   margin: 0;
   font-size: 1rem;
   border: 0;
@@ -62,27 +63,22 @@ button {
   padding: 0.5rem 1.2rem;
 }
 
-.output-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 20px;
-  height: 100%;
-}
-
-textarea {
-  resize: none;
+#output-box {
   font-size: 14px;
   margin: 0;
   border: none;
   border-radius: 0px;
-  padding: 10px;
+  padding: 0.5rem 1.5rem;
   height: 100%;
-  width: calc(50% - 1px);
+  width: calc(50% - 0.5px);
   color: var(--normal-fg);
   background-color: var(--normal-bg);
   caret-color: var(--caret-color);
   box-sizing: border-box;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-y: auto;
+  line-height: 1.5;
 }
 
 textarea:focus-visible {
@@ -101,7 +97,7 @@ textarea:focus-visible {
 .cm-editor {
   font-size: 14px;
   height: 100%;
-  width: calc(50% - 1px);
+  width: calc(50% - 0.5px);
 }
 
 .cm-editor.cm-focused {
@@ -114,4 +110,8 @@ textarea:focus-visible {
 
 .cm-editor .cm-cursor {
   border-left-color: var(--caret-color);
+}
+
+span.stderr {
+  color: var(--caret-color);
 }

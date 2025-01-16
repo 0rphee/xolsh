@@ -11,7 +11,7 @@ import {
 import { createEditorView } from "./editorconf.js";
 
 function encode(str) {
-  new TextEncoder().encode(str);
+  return new TextEncoder().encode(str);
 }
 
 const loxFilename = "hello.lox";
@@ -23,18 +23,20 @@ const loxFile = new File(
 const buttonElement = document.getElementById("run-button");
 const editorContainer = document.getElementById("content");
 const outputBox = document.getElementById("output-box");
-outputBox.value = "";
+outputBox.innerHTML = "";
 
 const editorView = createEditorView(editorContainer, originalLoxFileString);
 const wasiArgs = ["xolsh-exe.wasm", "hello.lox"];
 const wasiEnv = [];
 
 const wasiStdout = ConsoleStdout.lineBuffered((msg) => {
-  outputBox.value += `[WASI stdout] ${msg}\n`;
+  outputBox.innerHTML += `${msg}\n`;
+  // outputBox.innerText += `[WASI stdout] ${msg}\n`;
   // console.log(`[WASI stdout] ${msg}`);
 });
 const wasiStderr = ConsoleStdout.lineBuffered((msg) => {
-  outputBox.value += `[WASI stderr] ${msg}\n`;
+  outputBox.innerHTML += `<span class="stderr">${msg}</span>\n`;
+  // outputBox.innerText += `[WASI stderr] ${msg}\n`;
   // console.warn(`[WASI stderr] ${msg}`);
 });
 
@@ -64,7 +66,7 @@ await runWasi();
 // Event listener for the button
 buttonElement.addEventListener("click", async () => {
   loxFile.data = encode(editorView.state.doc);
-  outputBox.value = "";
+  outputBox.innerHTML = "";
   await runWasi();
 });
 
