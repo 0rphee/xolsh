@@ -10,16 +10,22 @@ import {
 } from "@bjorn3/browser_wasi_shim";
 import { createEditorView } from "./editorconf.js";
 
+function encode(str) {
+  new TextEncoder().encode(str);
+}
+
 const loxFilename = "hello.lox";
-const originalLoxFileStr = `print "hello";`;
-const loxFile = new File(new TextEncoder("utf-8").encode(originalLoxFileStr));
+const originalLoxFileString = `print "hello";\n`;
+const loxFile = new File(
+  new TextEncoder("utf-8").encode(originalLoxFileString),
+);
 
 const buttonElement = document.getElementById("run-button");
 const editorContainer = document.getElementById("content");
 const outputBox = document.getElementById("output-box");
 outputBox.value = "";
 
-const editorView = createEditorView(editorContainer, originalLoxFileStr);
+const editorView = createEditorView(editorContainer, originalLoxFileString);
 const wasiArgs = ["xolsh-exe.wasm", "hello.lox"];
 const wasiEnv = [];
 
@@ -44,21 +50,15 @@ const wasmSource = await fetch("xolsh-exe.wasm").then((resp) =>
   resp.arrayBuffer(),
 );
 
-const runWasi = async () => {
+async function runWasi() {
   const wasi = new WASI(wasiArgs, wasiEnv, fds, wasiOptions);
-  const instance = await (async () => {
-    const { instance } = await WebAssembly.instantiate(wasmSource, {
-      wasi_snapshot_preview1: wasi.wasiImport,
-      // ghc_wasm_jsffi: ghc_wasm_jsffi(instance_exports),
-    });
-    // instance.exports = new Object();
-    Object.assign(instance_exports, instance.exports);
-    return instance;
-  })();
+  const { instance } = await WebAssembly.instantiate(wasmSource, {
+    wasi_snapshot_preview1: wasi.wasiImport,
+    // ghc_wasm_jsffi: ghc_wasm_jsffi(instance_exports),
+  });
+  Object.assign(instance_exports, instance.exports);
   wasi.start(instance);
-};
-
-const encode = (str) => new TextEncoder().encode(str);
+}
 
 await runWasi();
 // Event listener for the button
