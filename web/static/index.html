@@ -4,16 +4,30 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>xolsh</title>
+    <link href="./style.css" rel="stylesheet" />
     <link
-      href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
       rel="stylesheet"
     />
-    <link href="./style.css" rel="stylesheet" />
   </head>
   <body>
     <header>
-      <h5>xolsh - hslox</h5>
-      <button id="run-button" class="btn btn-primary">Run</button>
+      <div>
+        <h2>xolsh - hslox</h2>
+        <div>a lox interpreter</div>
+      </div>
+      <div>
+        <button id="run-button" class="btn btn-primary">
+          <i class="fa-solid fa-play"></i> Run
+        </button>
+        <a
+          href="https://github.com/0rphee/xolsh"
+          target="_blank"
+          class="btn btn-secondary"
+        >
+          <i class="fab fa-github"></i> view on github
+        </a>
+      </div>
     </header>
     <div id="content">
       <textarea

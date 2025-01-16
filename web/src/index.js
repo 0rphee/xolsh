@@ -10,6 +10,7 @@ import {
 } from "@bjorn3/browser_wasi_shim";
 import { basicSetup } from "codemirror";
 import { EditorView } from "@codemirror/view";
+import { boysAndGirls } from "thememirror";
 
 const loxFilename = "hello.lox";
 const originalLoxFileStr = `print "hello";`;
@@ -22,36 +23,36 @@ rightBox.value = "";
 
 const editorView = new EditorView({
   doc: originalLoxFileStr,
-  extensions: [basicSetup],
+  extensions: [basicSetup, boysAndGirls],
   parent: editorContainer,
 });
 
-const args = ["xolsh-exe.wasm", "hello.lox"];
-const env = [];
+const wasiArgs = ["xolsh-exe.wasm", "hello.lox"];
+const wasiEnv = [];
 
-const stdout = ConsoleStdout.lineBuffered((msg) => {
+const wasiStdout = ConsoleStdout.lineBuffered((msg) => {
   rightBox.value += `[WASI stdout] ${msg}\n`;
   // console.log(`[WASI stdout] ${msg}`);
 });
-const stderr = ConsoleStdout.lineBuffered((msg) => {
+const wasiStderr = ConsoleStdout.lineBuffered((msg) => {
   rightBox.value += `[WASI stderr] ${msg}\n`;
   // console.warn(`[WASI stderr] ${msg}`);
 });
 
 const fds = [
   new OpenFile(new File([])), // stdin
-  stdout,
-  stderr,
+  wasiStdout,
+  wasiStderr,
   new PreopenDirectory("/", [[loxFilename, loxFile]]),
 ];
-const options = { debug: false };
+const wasiOptions = { debug: false };
 const instance_exports = {};
 const wasmSource = await fetch("xolsh-exe.wasm").then((resp) =>
   resp.arrayBuffer(),
 );
 
 const runWasi = async () => {
-  const wasi = new WASI(args, env, fds, options);
+  const wasi = new WASI(wasiArgs, wasiEnv, fds, wasiOptions);
   const instance = await (async () => {
     const { instance } = await WebAssembly.instantiate(wasmSource, {
       wasi_snapshot_preview1: wasi.wasiImport,
