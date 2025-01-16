@@ -17,6 +17,9 @@
   "homepage": "https://github.com/0rphee/xolsh.git#readme",
   "description": "",
   "dependencies": {
-    "@bjorn3/browser_wasi_shim": "^0.3.0"
+    "@bjorn3/browser_wasi_shim": "^0.3.0",
+    "@codemirror/commands": "^6.8.0",
+    "@codemirror/view": "^6.36.2",
+    "codemirror": "^6.0.1"
   }
 }

@@ -1,4 +1,5 @@
 // import { WASI, OpenFile, File, ConsoleStdout } from "https://cdn.jsdelivr.net/npm/@bjorn3/browser_wasi_shim@0.2.21/dist/index.js";
+// import ghc_wasm_jsffi from "./ghc_wasm_jsffi.js";
 
 import {
   WASI,
@@ -7,17 +8,23 @@ import {
   ConsoleStdout,
   PreopenDirectory,
 } from "@bjorn3/browser_wasi_shim";
-// import ghc_wasm_jsffi from "./ghc_wasm_jsffi.js";
+import { basicSetup } from "codemirror";
+import { EditorView } from "@codemirror/view";
 
 const loxFilename = "hello.lox";
 const originalLoxFileStr = `print "hello";`;
 const loxFile = new File(new TextEncoder("utf-8").encode(originalLoxFileStr));
 
-const buttonElement = document.getElementById("write-button");
-const leftBox = document.getElementById("left-box");
+const buttonElement = document.getElementById("run-button");
+const editorContainer = document.getElementById("content");
 const rightBox = document.getElementById("right-box");
-leftBox.value = originalLoxFileStr;
 rightBox.value = "";
+
+const editorView = new EditorView({
+  doc: originalLoxFileStr,
+  extensions: [basicSetup],
+  parent: editorContainer,
+});
 
 const args = ["xolsh-exe.wasm", "hello.lox"];
 const env = [];
@@ -63,7 +70,7 @@ const decode = (str) => new TextDecoder().decode(str);
 await runWasi();
 // Event listener for the button
 buttonElement.addEventListener("click", async () => {
-  loxFile.data = encode(leftBox.value);
+  loxFile.data = encode(editorView.state.doc);
   rightBox.value = "";
   await runWasi();
 });

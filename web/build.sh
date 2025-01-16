@@ -5,15 +5,9 @@ if [[ $PWD != */web ]]; then
     exit 1
 fi
 
-# wasm32-wasi-cabal build && wasmpath=$(wasm32-wasi-cabal list-bin xolsh-web)
-
-# $(wasm32-wasi-ghc --print-libdir)/post-link.mjs -i $wasmpath -o ./dist/ghc_wasm_jsffi.js
-
-# cp -f $wasmpath dist/xolsh-web.wasm
-
 wasm32-wasi-cabal build xolsh-exe && wasmpath=$(wasm32-wasi-cabal list-bin xolsh-exe)
 cp -f $wasmpath dist/xolsh-exe.wasm
 
-cp -f static/index.html dist/index.html
+cp -R static/ dist/
 
 esbuild ./src/index.js --bundle --serve=127.0.0.1:9000 --servedir=./dist --outfile=./dist/index.js --global-name=Main --format=esm --platform=browser "--external:node:timers"

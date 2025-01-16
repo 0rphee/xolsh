@@ -31,7 +31,7 @@ executable xolsh-web
     ghc-options:
       -no-hs-main
       -optl-mexec-model=reactor
-      "-optl-Wl,--export=plus3,--export=main2"
+      "-optl-Wl,--export=main"
 
     -- provide  import GHC.Wasm.Prim
     build-depends: ghc-experimental
