@@ -58,7 +58,7 @@ jobs:
         run: |
           cabal configure --enable-tests
           # Generate dist-newstyle/cache/plan.json for the cache key.
-          cabal build --dry-run
+          cabal build xolsh-exe --dry-run
 
       - name: Freeze
         run: cabal freeze
@@ -70,7 +70,7 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('dist-newstyle/cache/plan.json') }}
 
       - name: Build
-        run: cabal build all
+        run: cabal build xolsh-exe
 
       - name: Test
         run: cabal test all --test-show-details=direct
