@@ -22,6 +22,8 @@
     "@codemirror/state": "^6.5.1",
     "@codemirror/view": "^6.36.2",
     "codemirror": "^6.0.1",
-    "thememirror": "^2.0.1"
+    "thememirror": "^2.0.1",
+    "wasm-webterm": "github:cryptool-org/wasm-webterm",
+    "xterm": "^4.19.0"
   }
 }
