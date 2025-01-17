@@ -26,6 +26,8 @@ header {
   align-items: center;
   padding: 1.5rem;
   background-color: var(--normal-bg);
+  /* small screens*/
+  gap: 2rem;
 }
 
 a {
@@ -45,11 +47,19 @@ header>div>h2 {
   margin: 0;
 }
 
-header>div {
+.h-title,
+.h-buttons {
   margin: 0;
   display: flex;
-  gap: 2rem;
   align-items: center;
+}
+
+.h-title {
+  gap: 1.5rem;
+}
+
+.h-buttons {
+  gap: 1.5rem;
 }
 
 button {

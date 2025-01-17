@@ -9,13 +9,13 @@ outdir=""
 case $1 in
     dev) 
         echo "dev run"
-        outdir="./static/"
+        outdir="./static"
         ;;
     prod)
         echo "prod run"
         wasm32-wasi-cabal update
         npm install
-        outdir="./dist/"
+        outdir="./dist"
         cp -R static/ $outdir/
         ;;
     *)
@@ -27,6 +27,16 @@ esac
 wasm32-wasi-cabal build xolsh-exe && wasmpath=$(wasm32-wasi-cabal list-bin xolsh-exe)
 
 cp -f $wasmpath $outdir/xolsh-exe.wasm
+
+# O1 is better than On n>=2
+optflags="-O1 --strip-debug"
+optargs="$outdir/xolsh-exe.wasm -o $outdir/xolsh-exe.wasm"
+echo running wasm-opt $optflags $optargs
+wasm-opt $optflags $optargs
+# "wasm-tools strip" doesnt seem to have any effect (size changed 5056952 -> 5057240)
+# it even seems to degrade a bit the performance
+# wasm-tools strip $optargs
+echo end running wasm-opt
 
 case $1 in
     dev)

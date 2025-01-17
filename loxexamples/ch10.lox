@@ -6,7 +6,7 @@ fun fib(n) {
 }
 
 print "begin fib";
-for (var i = 0; i < 35; i = i + 1) {
+for (var i = 0; i < 25; i = i + 1) {
   print fib(i);
 }
 print "end fib, begin count";
