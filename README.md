@@ -9,7 +9,7 @@ cabal run xolsh-exe -- file.lox
 cabal run xolsh-exe
 ```
 
-A complete Haskell tree-walking implementation of the `lox` programming language (jlox) from the [Crafting Interpreters Book](https://craftinginterpreters.com/). It fully passes the jlox test suite.
+A complete Haskell tree-walking implementation of the `lox` programming language (jlox) from the [Crafting Interpreters Book](https://craftinginterpreters.com/). It fully passes the jlox test suite and has an [online playground](https://0rphee.github.io/xolsh/).
 
 The code style of the interpreter is mostly a port/adaptation of the original java implementation, with a more idiomatic Haskell style where possible.
 
