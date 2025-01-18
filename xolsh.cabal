@@ -118,6 +118,7 @@ benchmark xolsh-bench
   main-is: Bench.hs
   other-modules:
     Paths_xolsh
+    Programs
 
   build-depends:
     bytestring,
