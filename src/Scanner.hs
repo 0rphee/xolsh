@@ -2,7 +2,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
-module Scanner where
+module Scanner (scanTokens, whileM) where
 
 import Control.Monad (when)
 import Control.Monad.RWS.CPS

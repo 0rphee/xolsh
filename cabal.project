@@ -2,7 +2,7 @@ packages:
   ./
   ./web
 
-index-state: hackage.haskell.org 2024-07-13T19:04:01Z
+index-state: hackage.haskell.org 2025-01-18T00:42:49Z
 
 if !arch(wasm32)
   source-repository-package

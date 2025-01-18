@@ -38,16 +38,6 @@ common common-options
     -fexpose-all-unfoldings
     -Wunused-packages
 
-  -- !arch(wasm32) || !os(wasi)
-  if arch(wasm32)
-    ghc-options:
-      -O2
-      -single-threaded
-  else
-    ghc-options:
-      -threaded
-      -with-rtsopts=-N
-
   default-extensions:
     OverloadedStrings
 
@@ -87,6 +77,18 @@ executable xolsh-exe
     , common-deps
     , common-options
 
+  -- !arch(wasm32) || !os(wasi)
+  ghc-options:
+
+  if arch(wasm32)
+    ghc-options:
+      -O2
+      -single-threaded
+  else
+    ghc-options:
+      -threaded
+      -with-rtsopts=-N
+
   hs-source-dirs:
     app
 
@@ -102,4 +104,25 @@ executable xolsh-exe
     bytestring,
     mtl,
     optparse-applicative,
+    xolsh,
+
+benchmark xolsh-bench
+  import:
+    common-options,
+    common-deps
+
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    bench
+
+  main-is: Bench.hs
+  other-modules:
+    Paths_xolsh
+
+  build-depends:
+    bytestring,
+    silently,
+    string-interpolate >=0.3.0.0,
+    tasty,
+    tasty-bench,
     xolsh,
