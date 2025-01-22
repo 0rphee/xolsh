@@ -8,9 +8,6 @@
 
 module Parser (runParse) where
 
-#if __GLASGOW_HASKELL__ < 906
-import Control.Applicative (liftA2) -- for GHC versions lower than 9.6
-#endif
 import Control.Monad (void, when)
 import Control.Monad.Except
   ( ExceptT

@@ -12,7 +12,7 @@ extra-source-files:
   CHANGELOG.md
   README.md
 
-tested-with: ghc ==9.4.8 || ==9.6.5 || ==9.8.2 || ==9.10.1
+tested-with: ghc ==9.6.5 || ==9.8.2 || ==9.10.1
 
 common common-deps
   build-depends:
