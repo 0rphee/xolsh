@@ -271,10 +271,10 @@ execute = \case
             _ -> throwError $ Error.RuntimeError superclassTok "Superclass must be a class."
     (mayInitMethdThisClass, thisClassMethods) <-
       V.foldM
-        ( \(_, acc) next@(Stmt.FFunctionH fname _ _) -> do
+        ( \(prevMayInit, acc) next@(Stmt.FFunctionH fname _ _) -> do
             let isInit = fname.lexeme == "init"
             fun <- newFun next isInit
-            let mayInit = if isInit then Just fun else Nothing
+            let mayInit = if isInit then Just fun else prevMayInit
             pure (mayInit, M.insert fname.lexeme fun acc)
         )
         (Nothing, M.empty)
@@ -416,6 +416,20 @@ interpret statements = do
       M.fromList
         [
           ( "clock"
+          , Expr.LCallable $
+              Expr.CFunction $
+                Expr.LRFunction
+                  { Expr.fun_toString = "<native fn>"
+                  , Expr.fun_arity = 0
+                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_isInitializer = False
+                  , Expr.fun_call = \_evaluator _args ->
+                      -- realToFrac & fromIntegral treat NominalDiffTime as seconds
+                      Expr.LNumber . realToFrac <$> liftIO Time.getPOSIXTime
+                  }
+          )
+        ,
+          ( "read"
           , Expr.LCallable $
               Expr.CFunction $
                 Expr.LRFunction
