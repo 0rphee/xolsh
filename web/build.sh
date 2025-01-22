@@ -43,6 +43,6 @@ case $1 in
         esbuild ./src/index.js --bundle --serve=127.0.0.1:9000 --servedir=./static --outfile=./static/index.js --format=esm --platform=browser "--external:node:timers"
         ;;
     prod)
-        esbuild ./src/index.js --bundle --outfile=./dist/index.js --format=esm --platform=browser "--external:node:timers"
+        esbuild ./src/index.js --bundle --outfile=./dist/index.js --format=esm --platform=browser --minify "--external:node:timers"
         ;;
 esac
