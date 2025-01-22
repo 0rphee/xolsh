@@ -9,13 +9,13 @@ import {
   PreopenDirectory,
 } from "@bjorn3/browser_wasi_shim";
 import { createEditorView } from "./editorconf.js";
+import { originalLoxFileString } from "./loxexample.js";
 
 function encode(str) {
   return new TextEncoder().encode(str);
 }
 
 const loxFilename = "hello.lox";
-const originalLoxFileString = `print "hello";\n`;
 const loxFile = new File(
   new TextEncoder("utf-8").encode(originalLoxFileString),
 );
