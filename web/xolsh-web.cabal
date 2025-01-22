@@ -41,3 +41,8 @@ executable xolsh-web
 
     -- provide  import GHC.Wasm.Prim
     build-depends: ghc-wasm-compat
+
+  if impl(ghc < 9.10)
+    buildable: False
+  else
+    buildable: True
