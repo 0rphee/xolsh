@@ -13,6 +13,7 @@ import Control.Monad.State.Strict
   )
 import Control.Monad.State.Strict qualified as State
 import Control.Monad.Trans.Except (finallyE)
+import Data.ByteString qualified as B
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.Foldable (traverse_)
@@ -25,12 +26,16 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Time.Clock.POSIX qualified as Time
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Data.Word (Word8)
 import Environment
 import Error qualified
 import Expr qualified
+import Foreign (Ptr, free, mallocBytes, peek)
 import Numeric qualified
 import Scanner (whileM)
 import Stmt qualified
+import System.Exit qualified
+import System.IO (Handle, hGetBuf, stderr, stdin)
 import TokenType qualified
 
 evaluate :: Expr.Expr2 -> InterpreterM Expr.LiteralValue
@@ -438,11 +443,75 @@ interpret statements = do
                   , Expr.fun_closure = GlobalEnvironment globalsRef
                   , Expr.fun_isInitializer = False
                   , Expr.fun_call = \_evaluator _args ->
-                      -- realToFrac & fromIntegral treat NominalDiffTime as seconds
-                      Expr.LNumber . realToFrac <$> liftIO Time.getPOSIXTime
+                      liftIO $ readByte stdin
+                  }
+          )
+        ,
+          ( "utf"
+          , -- see https://docs.oracle.com/javase/specs/jls/se20/html/jls-5.html#jls-5.1.3 and original java loxlox
+            Expr.LCallable $
+              Expr.CFunction $
+                Expr.LRFunction
+                  { Expr.fun_toString = "<native fn>"
+                  , Expr.fun_arity = 4
+                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_isInitializer = False
+                  , Expr.fun_call = \_evaluator _args -> do
+                      let bytes =
+                            V.foldr'
+                              (\n acc -> case n of Expr.LNumber d -> round d : acc; _else -> acc)
+                              []
+                              _args
+                      pure $ Expr.LString $ B.pack bytes
+                  }
+          )
+        ,
+          ( "exit"
+          , Expr.LCallable $
+              Expr.CFunction $
+                Expr.LRFunction
+                  { Expr.fun_toString = "<native fn>"
+                  , Expr.fun_arity = 1
+                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_isInitializer = False
+                  , Expr.fun_call = \_evaluator _args ->
+                      let exitCode = case _args `V.unsafeIndex` 0 of
+                            Expr.LNumber n -> floor n
+                            _ -> 70
+                       in liftIO $ System.Exit.exitWith $ System.Exit.ExitFailure exitCode
+                  }
+          )
+        ,
+          ( "printerr"
+          , Expr.LCallable $
+              Expr.CFunction $
+                Expr.LRFunction
+                  { Expr.fun_toString = "<native fn>"
+                  , Expr.fun_arity = 1
+                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_isInitializer = False
+                  , Expr.fun_call = \_evaluator _args -> do
+                      errstr <- stringify $ _args `V.unsafeIndex` 0
+                      liftIO $ BS.hPutStrLn stderr errstr
+                      pure Expr.LNil
                   }
           )
         ]
+
+-- for loxlox: https://github.com/mrjameshamilton/loxlox/tree/main/bin
+-- see https://docs.oracle.com/en/java/javase/20/docs/api/java.base/java/io/InputStream.html#read()
+readByte :: Handle -> IO Expr.LiteralValue
+readByte handle = do
+  buffer :: Ptr Word8 <- mallocBytes 1
+  actReadBytes <- hGetBuf handle buffer 1
+  res <-
+    if actReadBytes == 0
+      then pure Expr.LNil
+      else do
+        byte <- peek buffer
+        pure $ Expr.LNumber $ fromIntegral byte
+  free buffer
+  pure res
 
 executeStmts :: Vector Stmt.Stmt2 -> InterpreterM ()
 executeStmts = traverse_ execute

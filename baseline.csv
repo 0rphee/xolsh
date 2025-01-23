@@ -1,8 +1,8 @@
 Name,Mean (ps),2*Stdev (ps)
-All.interpretStr.lightTests.Str concat and num mult in for loop,36445605,3438826
-All.interpretStr.lightTests.inherited_method,43448022,3666036
-All.interpretStr.lightTests.assign_to_closure,45684985,4001120
-All.interpretStr.lightTests.rec fib(5),39641979,2240544
-All.interpretStr.lightTests.nested_closure,42180859,3581092
-All.interpretStr.lightTests.inheritance_lambdas,34427716,1301214
-All.interpretStr.heavyTests.rec fib(27),329285400000,19244942654
+All.interpretStr.lightTests.Str concat and num mult in for loop,58463549,5549662
+All.interpretStr.lightTests.inherited_method,72326098,4288052
+All.interpretStr.lightTests.assign_to_closure,74239257,6959324
+All.interpretStr.lightTests.rec fib(5),66069750,3786356
+All.interpretStr.lightTests.nested_closure,68085253,3721392
+All.interpretStr.lightTests.inheritance_lambdas,62312573,4899696
+All.interpretStr.heavyTests.rec fib(27),543526600000,42208913570
