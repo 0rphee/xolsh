@@ -174,3 +174,4 @@ dist
 *~
 web/src/ghc_wasm_jsffi.js
 web/static/xolsh-exe.wasm
+results.svg
