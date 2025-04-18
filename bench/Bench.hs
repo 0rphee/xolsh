@@ -2,20 +2,33 @@
 
 module Main (main) where
 
+import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
+import Data.Functor ((<&>))
 import Error qualified
 import Interpreter qualified
 import Parser qualified
 import Programs qualified
 import Resolver qualified
 import Scanner qualified
-import System.IO.Silently
+import System.IO.Silently qualified as Silently
+import System.Process qualified as P
+import Test.Tasty (localOption)
 import Test.Tasty.Bench
+  ( Benchmark
+  , TimeMode (WallTime)
+  , bench
+  , bgroup
+  , defaultMain
+  , nfAppIO
+  , whnfIO
+  )
 
 main :: IO ()
-main =
+main = do
+  xolshexe <- P.readProcess "cabal" ["list-bin", "exe:xolsh-exe"] "" <&> init
   defaultMain
     [ bgroup
         "interpretStr"
@@ -25,13 +38,31 @@ main =
         , bgroup
             "heavyTests"
             (benchPrograms Programs.heavyTests)
+        , bgroup
+            "loxLoxTests"
+            (benchLoxLoxPrograms xolshexe Programs.loxLoxTests)
         ]
     ]
   where
+    benchPrograms :: [(String, ByteString)] -> [Benchmark]
     benchPrograms proglist =
       [ bench (name) $ whnfIO $ interpretStr bs
       | ((strname, bs)) <- proglist
       , let name = if B.length bs > 20 then strname else B.unpack bs
+      ]
+    benchLoxLoxPrograms :: FilePath -> [FilePath] -> [Benchmark]
+    benchLoxLoxPrograms xolshexe proglist =
+      [ localOption WallTime $
+          bench loxfilepath $
+            ( \exe ->
+                Silently.silence $
+                  void $
+                    P.waitForProcess
+                      =<< P.runCommand
+                        (concat ["sh -c \"cat ", loxfilepath, " | ", exe, " loxlox/Lox.lox\""])
+            )
+              `nfAppIO` xolshexe
+      | loxfilepath <- proglist
       ]
 
 interpretStr :: ByteString -> IO ()
@@ -48,6 +79,6 @@ interpretStr sourceBS = do
           liftIO (Resolver.runResolver stmts) >>= \case
             Nothing -> fail "Error in resolver."
             Just stmts2 -> do
-              (silence $ Interpreter.interpret stmts2) >>= \case
+              (Silently.silence $ Interpreter.interpret stmts2) >>= \case
                 Error.Error -> fail "Error while interpreting."
                 Error.NoError -> pure ()

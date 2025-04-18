@@ -1,6 +1,6 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-module Programs (lightTests, heavyTests) where
+module Programs (lightTests, heavyTests, loxLoxTests) where
 
 import Data.ByteString.Char8 (ByteString)
 import Data.String.Interpolate (iii)
@@ -17,6 +17,9 @@ lightTests =
 
 heavyTests :: [(String, ByteString)]
 heavyTests = [t_recfib27]
+
+loxLoxTests :: [FilePath]
+loxLoxTests = ["loxexamples/ch12.lox", "loxexamples/sums.lox"]
 
 t_concatAndMult :: (String, ByteString)
 t_concatAndMult =

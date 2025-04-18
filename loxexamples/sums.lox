@@ -1,0 +1,17 @@
+var maxNum = 100000000000;
+var a = 0;
+var temp;
+
+for (var b = 1; a < maxNum; b = temp + b) {
+  print a;
+  temp = a;
+  a = b;
+}
+
+
+fun sum(a, b) {
+  if (!(a < maxNum)) return;
+  print a;
+  return sum(b, a+b);
+}
+sum(0,1);
