@@ -27,6 +27,7 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Time.Clock.POSIX qualified as Time
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Data.Vector.Mutable qualified as MV
 import Data.Word (Word8)
 import Environment
 import Error qualified
@@ -156,7 +157,7 @@ evaluate = \case
   Expr.EAssign name exprValue distance -> do
     value <- evaluate exprValue
     if distance == (-1)
-      then State.gets (.globals) >>= assignFromMap name value
+      then State.gets (.globals) >>= assignFromMap name distance.nameInfo_index value
       else State.gets (.environment) >>= assignAt distance name value
     pure value
   where
@@ -189,9 +190,9 @@ bind
   -> IORef Expr.LoxRuntimeClass
   -> Expr.LoxRuntimeFunction
   -> InterpreterM (Expr.LoxRuntimeFunction, Expr.LiteralValue)
-bind fieldsRef classOfInstance runtimeFun = do
+bind vecSize fieldsRef classOfInstance runtimeFun = do
   newClosureEnv <-
-    liftIO (newIORef M.empty)
+    liftIO (newIORef =<< MV.new vecSize)
       <&> \mref -> LocalEnvironment mref runtimeFun.fun_closure
   let classInstance = Expr.LInstance fieldsRef classOfInstance
   define "this" classInstance newClosureEnv

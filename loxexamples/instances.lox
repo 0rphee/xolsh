@@ -1,0 +1,20 @@
+
+class Square {
+  init(side){
+    this.side = side;
+  }
+
+}
+
+
+var square = Square(100);
+
+square.hello = 10;
+
+
+print square;
+print square.hello;
+print square.side;
+
+square.mamma;
+

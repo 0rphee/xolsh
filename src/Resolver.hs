@@ -33,6 +33,7 @@ data ResolverState = ResolverState
   { scopes :: ![Map ShortByteString Bool]
   , currentFunction :: !FunctionType
   , currentClass :: !ClassType
+  , currentBindings :: !Int
   }
 
 type ResolverM a = RWST () Error.ErrorPresent ResolverState IO a

@@ -13,6 +13,7 @@ module Expr
   , XEnvDistance
   , LoxRuntimeFunction (..)
   , LoxRuntimeClass (..)
+  , NameInfo (..)
   )
 where
 
@@ -30,9 +31,13 @@ type Expr1 = Expr PH1
 
 type Expr2 = Expr PH2
 
+data NameInfo = NameInfo
+  {nameInfo_scope :: {-# UNPACK #-} !Int, nameInfo_index :: {-# UNPACK #-} !Int}
+  deriving (Eq, Show)
+
 type family XEnvDistance (phase :: IPhase) where
   XEnvDistance PH1 = ()
-  XEnvDistance PH2 = Int
+  XEnvDistance PH2 = NameInfo
 
 data Expr (phase :: IPhase)
   = -- | > EAssign
