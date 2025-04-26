@@ -71,6 +71,7 @@ library
     transformers >=0.6.0.0,
     vector,
     vector-builder,
+    template-haskell,
 
 executable xolsh-exe
   import:
@@ -87,6 +88,7 @@ executable xolsh-exe
   else
     ghc-options:
       -threaded
+      -rtsopts
       -with-rtsopts=-N
 
   hs-source-dirs:
@@ -115,12 +117,19 @@ benchmark xolsh-bench
   hs-source-dirs:
     bench
 
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
   main-is: Bench.hs
   other-modules:
     Paths_xolsh
     Programs
 
   build-depends:
+    template-haskell,
+    th-lift-instances,
     bytestring,
     silently,
     string-interpolate >=0.3.0.0,
@@ -128,3 +137,4 @@ benchmark xolsh-bench
     tasty-bench,
     xolsh,
     process,
+    vector,

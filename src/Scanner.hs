@@ -16,13 +16,13 @@ import Data.Char (isAlpha, isDigit)
 import Data.Functor ((<&>))
 import Data.Vector (Vector)
 import Error qualified
-import TokenType (Token (..), TokenType (..))
+import TokenType qualified
 import VectorBuilder.Builder as VB
 import VectorBuilder.Vector as VB
 
 data Scanner = Scanner
   { source :: !ByteString
-  , tokens :: !(VB.Builder Token)
+  , tokens :: !(VB.Builder TokenType.Token)
   , start :: !Int
   , current :: !Int
   , line :: !Int
@@ -39,7 +39,7 @@ myIsAlpha c = isAlpha c || c == '_'
 myIsAlphaNum :: Char -> Bool
 myIsAlphaNum c = myIsAlpha c || isDigit c
 
-scanTokens :: ByteString -> IO (Vector Token, Error.ErrorPresent)
+scanTokens :: ByteString -> IO (Vector TokenType.Token, Error.ErrorPresent)
 scanTokens source = (\act -> evalRWST act () initialScanner) $ do
   whileM
     (not <$> isAtEnd)
@@ -52,7 +52,12 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
       { tokens =
           sc.tokens
             <> VB.singleton
-              (Token {ttype = EOF, lexeme = "", tline = sc.line})
+              ( TokenType.Token
+                  { TokenType.ttype = TokenType.EOF
+                  , TokenType.lexeme = ""
+                  , TokenType.tline = sc.line
+                  }
+              )
       }
 
   get <&> (VB.build . (.tokens))
@@ -73,24 +78,29 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
     scanToken = do
       c <- advance
       case c of
-        '(' -> addToken1 LEFT_PAREN
-        ')' -> addToken1 RIGHT_PAREN
-        '{' -> addToken1 LEFT_BRACE
-        '}' -> addToken1 RIGHT_BRACE
-        ',' -> addToken1 COMMA
-        '.' -> addToken1 DOT
-        '-' -> addToken1 MINUS
-        '+' -> addToken1 PLUS
-        ';' -> addToken1 SEMICOLON
-        '*' -> addToken1 STAR
+        '(' -> addToken1 TokenType.LEFT_PAREN
+        ')' -> addToken1 TokenType.RIGHT_PAREN
+        '{' -> addToken1 TokenType.LEFT_BRACE
+        '}' -> addToken1 TokenType.RIGHT_BRACE
+        ',' -> addToken1 TokenType.COMMA
+        '.' -> addToken1 TokenType.DOT
+        '-' -> addToken1 TokenType.MINUS
+        '+' -> addToken1 TokenType.PLUS
+        ';' -> addToken1 TokenType.SEMICOLON
+        '*' -> addToken1 TokenType.STAR
         '!' ->
-          match '=' >>= addToken1 . (\cond -> if cond then BANG_EQUAL else BANG)
+          match '='
+            >>= addToken1 . (\cond -> if cond then TokenType.BANG_EQUAL else TokenType.BANG)
         '=' ->
-          match '=' >>= addToken1 . (\cond -> if cond then EQUAL_EQUAL else EQUAL)
+          match '='
+            >>= addToken1 . (\cond -> if cond then TokenType.EQUAL_EQUAL else TokenType.EQUAL)
         '<' ->
-          match '=' >>= addToken1 . (\cond -> if cond then LESS_EQUAL else LESS)
+          match '='
+            >>= addToken1 . (\cond -> if cond then TokenType.LESS_EQUAL else TokenType.LESS)
         '>' ->
-          match '=' >>= addToken1 . (\cond -> if cond then GREATER_EQUAL else GREATER)
+          match '='
+            >>= addToken1
+              . (\cond -> if cond then TokenType.GREATER_EQUAL else TokenType.GREATER)
         '/' -> do
           match '/' >>= \case
             True ->
@@ -101,7 +111,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
                     pure $ pc /= '\n' && not end
                 )
                 advance
-            False -> addToken1 SLASH
+            False -> addToken1 TokenType.SLASH
         -- ignore whitespace
         ' ' -> pure ()
         '\r' -> pure ()
@@ -121,13 +131,13 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
       let newScanner = oldScanner {current = oldScanner.current + 1}
       put newScanner
       pure $ BS.index oldScanner.source oldScanner.current
-    addToken1 :: forall r. TokenType -> ScanM r ()
+    addToken1 :: forall r. TokenType.TokenType -> ScanM r ()
     addToken1 = addToken2
-    addToken2 :: forall r. TokenType -> ScanM r ()
+    addToken2 :: forall r. TokenType.TokenType -> ScanM r ()
     addToken2 ttype = modify' $ \sc ->
       -- substring
       let text = substring sc.source sc.start sc.current
-       in sc {tokens = sc.tokens <> VB.singleton (Token ttype text sc.line)}
+       in sc {tokens = sc.tokens <> VB.singleton (TokenType.Token ttype text sc.line)}
     match :: forall r. Char -> ScanM r Bool
     match expected = do
       e <- isAtEnd
@@ -168,7 +178,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
           advance
           sc <- get
           let value = substring sc.source (sc.start + 1) (sc.current - 1)
-          addToken2 (STRING value)
+          addToken2 (TokenType.STRING value)
     number :: forall r. ScanM r ()
     number = do
       whileM
@@ -182,7 +192,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
         (advance {- consume the "." -} >> whileM (isDigit <$> peek) advance)
       sc <- get
       addToken2
-        (NUMBER $ read . BS.unpack $ substring sc.source sc.start sc.current)
+        (TokenType.NUMBER $ read . BS.unpack $ substring sc.source sc.start sc.current)
     peekNext :: forall r. ScanM r Char
     peekNext = do
       get <&> \sc ->
@@ -205,22 +215,22 @@ whileM cond act = do
   r <- cond
   when r $ act >> whileM cond act
 
-identOrKeywTokTy :: ByteString -> TokenType
+identOrKeywTokTy :: ByteString -> TokenType.TokenType
 identOrKeywTokTy = \case
-  "and" -> AND
-  "class" -> CLASS
-  "else" -> ELSE
-  "false" -> FALSE
-  "for" -> FOR
-  "fun" -> FUN
-  "if" -> IF
-  "nil" -> NIL
-  "or" -> OR
-  "print" -> PRINT
-  "return" -> RETURN
-  "super" -> SUPER
-  "this" -> THIS
-  "true" -> TRUE
-  "var" -> VAR
-  "while" -> WHILE
-  _ -> IDENTIFIER
+  "and" -> TokenType.AND
+  "class" -> TokenType.CLASS
+  "else" -> TokenType.ELSE
+  "false" -> TokenType.FALSE
+  "for" -> TokenType.FOR
+  "fun" -> TokenType.FUNN
+  "if" -> TokenType.IF
+  "nil" -> TokenType.NIL
+  "or" -> TokenType.OR
+  "print" -> TokenType.PRINT
+  "return" -> TokenType.RETURN
+  "super" -> TokenType.SUPER
+  "this" -> TokenType.THIS
+  "true" -> TokenType.TRUE
+  "var" -> TokenType.VAR
+  "while" -> TokenType.WHILE
+  _ -> TokenType.IDENTIFIER

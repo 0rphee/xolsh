@@ -10,6 +10,7 @@ where
 
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
+import Language.Haskell.TH.Syntax (Lift)
 
 data TokenType
   = -- Single-character tokens.
@@ -42,7 +43,8 @@ data TokenType
   | CLASS
   | ELSE
   | FALSE
-  | FUN
+  | -- data constructors named 'FUN'  are problematic when using TH, see: https://gitlab.haskell.org/ghc/ghc/-/issues/20902
+    FUNN
   | FOR
   | IF
   | NIL
@@ -55,7 +57,7 @@ data TokenType
   | VAR
   | WHILE
   | EOF
-  deriving (Eq, Show)
+  deriving (Eq, Show, Lift)
 
 -- data Literal
 --   = LitStr !ByteString
@@ -70,7 +72,7 @@ data Token = Token
   , --   , literal :: !Literal -- Object in jlox reference implementation, removed here and moved to @TokenType@
     tline :: !Int
   }
-  deriving (Show)
+  deriving (Show, Lift)
 
 -- instance Show Token where
 --   show tok = show tok.ttype <> " " <> BS.unpack tok.lexeme <> " " -- <> show tok.literal

@@ -1,9 +1,25 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
-module Programs (lightTests, heavyTests, loxLoxTests) where
+module Programs (lightTests, heavyTests, loxLoxTests, comptimeScanningAction) where
 
 import Data.ByteString.Char8 (ByteString)
 import Data.String.Interpolate (iii)
+import Data.Vector qualified as V
+import Error qualified
+import Scanner qualified
+import TokenType qualified
+
+comptimeScanningAction
+  :: [(String, ByteString)] -> IO [(String, V.Vector TokenType.Token)]
+comptimeScanningAction list = traverse f list
+  where
+    f :: (String, ByteString) -> IO (String, V.Vector TokenType.Token)
+    f (str, tokens) =
+      (Scanner.scanTokens tokens) >>= \case
+        (_, Error.Error) -> fail "error scanning at compile time"
+        (v, _) -> pure (str, v)
 
 lightTests :: [(String, ByteString)]
 lightTests =

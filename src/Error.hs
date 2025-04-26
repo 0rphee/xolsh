@@ -47,8 +47,8 @@ resolverError
 resolverError = parseError
 
 data RuntimeException
-  = RuntimeError {token :: TokenType.Token, message :: BS.ByteString}
-  | RuntimeReturn {value :: Expr.LiteralValue}
+  = RuntimeError {token :: !TokenType.Token, message :: !BS.ByteString}
+  | RuntimeReturn {value :: !Expr.LiteralValue}
 
 reportRuntimeError :: MonadIO m => RuntimeException -> m ()
 reportRuntimeError rerror =

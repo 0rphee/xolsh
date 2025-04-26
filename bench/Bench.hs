@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Main (main) where
 
@@ -7,12 +8,16 @@ import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Functor ((<&>))
+import Data.Vector qualified as V
 import Error qualified
+import Instances.TH.Lift ()
 import Interpreter qualified
+import Language.Haskell.TH.Syntax qualified as TH
 import Parser qualified
 import Programs qualified
 import Resolver qualified
 import Scanner qualified
+import Stmt qualified
 import System.IO.Silently qualified as Silently
 import System.Process qualified as P
 import Test.Tasty (localOption)
@@ -25,22 +30,46 @@ import Test.Tasty.Bench
   , nfAppIO
   , whnfIO
   )
+import TokenType qualified
 
 main :: IO ()
 main = do
+  P.waitForProcess =<< P.runCommand "cabal build exe:xolsh-exe"
   xolshexe <- P.readProcess "cabal" ["list-bin", "exe:xolsh-exe"] "" <&> init
+  putStrLn xolshexe
   defaultMain
     [ bgroup
         "interpretStr"
-        [ bgroup
-            "lightTests"
-            (benchPrograms Programs.lightTests)
-        , bgroup
+        [ {- bgroup
+              "lightTests"
+              (benchPrograms Programs.lightTests)
+          , -}
+          bgroup
             "heavyTests"
             (benchPrograms Programs.heavyTests)
         , bgroup
             "loxLoxTests"
             (benchLoxLoxPrograms xolshexe Programs.loxLoxTests)
+        ]
+    , bgroup
+        "scanning"
+        [ bgroup "lightTests" $ benchScanning $(TH.lift Programs.lightTests)
+        , bgroup "heavyTests" $ benchScanning $(TH.lift Programs.heavyTests)
+        , bgroup "loxlox" []
+        ]
+    , bgroup
+        "parsing"
+        [ bgroup "lightTests" $
+            benchParsing
+              $( (TH.runIO $ Programs.comptimeScanningAction Programs.lightTests)
+                  >>= TH.lift
+               )
+        , bgroup "heavyTests" $
+            benchParsing
+              $( (TH.runIO $ Programs.comptimeScanningAction Programs.heavyTests)
+                  >>= TH.lift
+               )
+        , bgroup "loxlox" []
         ]
     ]
   where
@@ -64,6 +93,25 @@ main = do
               `nfAppIO` xolshexe
       | loxfilepath <- proglist
       ]
+
+benchScanning :: [(String, ByteString)] -> [Benchmark]
+benchScanning proglist =
+  [ bench name $ whnfIO $ runScanning bs
+  | (name, bs) <- proglist
+  ]
+
+runScanning :: ByteString -> IO (V.Vector TokenType.Token, Error.ErrorPresent)
+runScanning sourceBS = liftIO $ Scanner.scanTokens sourceBS
+
+benchParsing :: [(String, V.Vector TokenType.Token)] -> [Benchmark]
+benchParsing proglist =
+  [ bench name $ whnfIO $ runParsing bs
+  | (name, bs) <- proglist
+  ]
+
+runParsing
+  :: V.Vector TokenType.Token -> IO (Maybe (V.Vector Stmt.Stmt1), Error.ErrorPresent)
+runParsing tokens = liftIO $ Parser.runParse tokens
 
 interpretStr :: ByteString -> IO ()
 interpretStr sourceBS = do
