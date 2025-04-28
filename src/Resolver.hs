@@ -6,7 +6,7 @@ module Resolver (runResolver) where
 import Control.Monad (when)
 import Control.Monad.RWS.CPS (RWST, evalRWST)
 import Control.Monad.State.Class qualified as State
-import Data.ByteString (ByteString)
+import Data.ByteString.Short (ShortByteString)
 import Data.Foldable (traverse_)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
@@ -30,7 +30,7 @@ data ClassType
   | CTSubclass
 
 data ResolverState = ResolverState
-  { scopes :: ![Map ByteString Bool]
+  { scopes :: ![Map ShortByteString Bool]
   , currentFunction :: !FunctionType
   , currentClass :: !ClassType
   }
@@ -233,12 +233,12 @@ define name =
             (x : xs) -> M.insert name.lexeme True x : xs
      in st {scopes = newSc}
 
-resolveLocal :: ByteString -> ResolverM Int
+resolveLocal :: ShortByteString -> ResolverM Int
 resolveLocal name = do
   scopes <- State.gets (.scopes)
   go 0 scopes
   where
-    go :: Int -> [Map ByteString Bool] -> ResolverM Int
+    go :: Int -> [Map ShortByteString Bool] -> ResolverM Int
     go count = \case
       [] -> pure (-1)
       (x : xs) ->

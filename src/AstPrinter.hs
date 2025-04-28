@@ -14,16 +14,16 @@ printAst :: Expr a -> ByteString
 printAst = BS.toStrict . BS.toLazyByteString . go
   where
     go = \case
-      EBinary lexpr operator rexpr -> paren (BS.byteString operator.lexeme) [go lexpr, go rexpr]
+      EBinary lexpr operator rexpr -> paren (BS.shortByteString operator.lexeme) [go lexpr, go rexpr]
       EGrouping expr -> paren "group" [go expr]
       ELiteral litValue ->
         case litValue of
           LNil -> "nil"
-          LString str -> BS.byteString str
+          LString str -> BS.shortByteString str
           LNumber num -> BS.stringUtf8 $ show num
           LBool b -> (if b then "true" else "false")
           _ -> "litval unimplemented!"
-      EUnary operator expr -> paren (BS.byteString operator.lexeme) [go expr]
+      EUnary operator expr -> paren (BS.shortByteString operator.lexeme) [go expr]
       _ -> "expr unimplemented!"
       where
         paren :: BS.Builder -> [BS.Builder] -> BS.Builder

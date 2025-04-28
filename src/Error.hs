@@ -13,6 +13,7 @@ where
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Writer.Class (MonadWriter (tell))
 import Data.ByteString.Char8 as BS
+import Data.ByteString.Short qualified as SBS
 import {-# SOURCE #-} Expr qualified
 import System.IO (stderr)
 import TokenType (Token (..), TokenType (..))
@@ -40,14 +41,14 @@ parseError
 parseError token message =
   if token.ttype == EOF
     then report token.tline " at end" message
-    else report token.tline (" at '" <> token.lexeme <> "'") message
+    else report token.tline (" at '" <> SBS.fromShort token.lexeme <> "'") message
 
 resolverError
   :: (MonadIO m, MonadWriter ErrorPresent m) => Token -> ByteString -> m ()
 resolverError = parseError
 
 data RuntimeException
-  = RuntimeError {token :: !TokenType.Token, message :: !BS.ByteString}
+  = RuntimeError {token :: !TokenType.Token, message :: !ByteString}
   | RuntimeReturn {value :: !Expr.LiteralValue}
 
 reportRuntimeError :: MonadIO m => RuntimeException -> m ()

@@ -16,7 +16,7 @@ module Expr
   )
 where
 
-import Data.ByteString.Char8 (ByteString)
+import Data.ByteString.Short (ShortByteString)
 import Data.IORef (IORef)
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
@@ -93,7 +93,7 @@ data Callable
   deriving (Eq)
 
 data LoxRuntimeFunction = LRFunction
-  { fun_toString :: !ByteString
+  { fun_toString :: !ShortByteString
   , fun_arity :: !Int
   , fun_closure :: !Environment -- closure environment
   , fun_isInitializer :: !Bool
@@ -117,9 +117,9 @@ instance Eq LoxRuntimeFunction where
       && (a.fun_closure == b.fun_closure)
 
 data LoxRuntimeClass = LRClass
-  { class_name :: !ByteString
+  { class_name :: !ShortByteString
   , class_arity :: !Int
-  , class_methods :: !(IORef (Map ByteString LoxRuntimeFunction))
+  , class_methods :: !(IORef (Map ShortByteString LoxRuntimeFunction))
   , class_superclass :: !(Maybe (IORef LoxRuntimeClass))
   , class_call
       :: IORef LoxRuntimeClass -- reference to itself
@@ -137,11 +137,11 @@ instance Eq LoxRuntimeClass where
 data LiteralValue
   = LNil
   | LBool !Bool
-  | LString !ByteString
+  | LString !ShortByteString
   | LNumber !Double
   | LCallable !Callable
   | LInstance
-      { _LInstanceFields :: !(IORef (Map ByteString LiteralValue))
+      { _LInstanceFields :: !(IORef (Map ShortByteString LiteralValue))
       , _LInstanceClass :: !(IORef LoxRuntimeClass)
       }
 

@@ -8,8 +8,7 @@ module TokenType
   )
 where
 
-import Data.ByteString.Char8 (ByteString)
-import Data.ByteString.Char8 qualified as BS
+import Data.ByteString.Short (ShortByteString)
 import Language.Haskell.TH.Syntax (Lift)
 
 data TokenType
@@ -36,7 +35,7 @@ data TokenType
   | LESS_EQUAL
   | -- Literals.
     IDENTIFIER
-  | STRING !ByteString
+  | STRING !ShortByteString
   | NUMBER !Double
   | -- Keywords.
     AND
@@ -68,7 +67,7 @@ data TokenType
 
 data Token = Token
   { ttype :: !TokenType
-  , lexeme :: !ByteString
+  , lexeme :: !ShortByteString
   , --   , literal :: !Literal -- Object in jlox reference implementation, removed here and moved to @TokenType@
     tline :: !Int
   }

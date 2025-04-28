@@ -13,9 +13,10 @@ import Control.Monad.State.Strict
   )
 import Control.Monad.State.Strict qualified as State
 import Control.Monad.Trans.Except (finallyE)
-import Data.ByteString qualified as B
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.Foldable (traverse_)
 import Data.Function ((&))
 import Data.Functor ((<&>))
@@ -75,7 +76,7 @@ evaluate = \case
               throwError $
                 Error.RuntimeError
                   methdName
-                  ("Undefined property '" <> methdName.lexeme <> "'.")
+                  ("Undefined property '" <> SBS.fromShort methdName.lexeme <> "'.")
             Just fun ->
               Expr.LCallable . Expr.CFunction . fst
                 <$> bind fields thisInstanceClass fun
@@ -164,7 +165,7 @@ evaluate = \case
 
 getInstanceFieldOrMethod
   :: TokenType.Token
-  -> IORef (Map ByteString Expr.LiteralValue)
+  -> IORef (Map ShortByteString Expr.LiteralValue)
   -> IORef Expr.LoxRuntimeClass
   -> InterpreterM Expr.LiteralValue
 getInstanceFieldOrMethod fieldName fieldsRef classSuperclass = do
@@ -181,10 +182,10 @@ getInstanceFieldOrMethod fieldName fieldsRef classSuperclass = do
           throwError $
             Error.RuntimeError
               fieldName
-              ("Undefined property '" <> fieldName.lexeme <> "'.")
+              ("Undefined property '" <> SBS.fromShort fieldName.lexeme <> "'.")
 
 bind
-  :: IORef (Map ByteString Expr.LiteralValue)
+  :: IORef (Map ShortByteString Expr.LiteralValue)
   -> IORef Expr.LoxRuntimeClass
   -> Expr.LoxRuntimeFunction
   -> InterpreterM (Expr.LoxRuntimeFunction, Expr.LiteralValue)
@@ -199,7 +200,7 @@ bind fieldsRef classOfInstance runtimeFun = do
 setInstanceField
   :: TokenType.Token
   -> Expr.LiteralValue
-  -> IORef (Map ByteString Expr.LiteralValue)
+  -> IORef (Map ShortByteString Expr.LiteralValue)
   -> InterpreterM ()
 setInstanceField name value mref =
   liftIO . modifyIORef' mref $
@@ -224,11 +225,11 @@ stringify = \case
             then pstr
             else str
   Expr.LBool v -> pure $ if v then "true" else "false"
-  Expr.LString v -> pure v
-  Expr.LCallable (Expr.CClass cref) -> liftIO (readIORef cref) <&> (.class_name)
-  Expr.LCallable (Expr.CFunction f) -> pure f.fun_toString
+  Expr.LString v -> pure $ SBS.fromShort v
+  Expr.LCallable (Expr.CClass cref) -> liftIO (readIORef cref) <&> (.class_name) <&> SBS.fromShort
+  Expr.LCallable (Expr.CFunction f) -> pure $ SBS.fromShort f.fun_toString
   Expr.LInstance _ cref -> do
-    cname <- liftIO (readIORef cref) <&> (.class_name)
+    cname <- liftIO (readIORef cref) <&> (.class_name) <&> SBS.fromShort
     pure $ cname <> " instance"
 
 execute :: Stmt.Stmt2 -> InterpreterM ()
@@ -462,7 +463,7 @@ interpret statements = do
                               (\n acc -> case n of Expr.LNumber d -> round d : acc; _else -> acc)
                               []
                               _args
-                      pure $ Expr.LString $ B.pack bytes
+                      pure $ Expr.LString $ SBS.pack bytes
                   }
           )
         ,
@@ -522,14 +523,14 @@ recPrintEnvs env count = case env of
   GlobalEnvironment v -> printEnvRef v
   LocalEnvironment v enc -> printEnvRef v >> recPrintEnvs enc (count + 1)
   where
-    printEnvRef :: IORef (Map ByteString Expr.LiteralValue) -> InterpreterM ()
+    printEnvRef :: IORef (Map ShortByteString Expr.LiteralValue) -> InterpreterM ()
     printEnvRef ref = do
       mapv <- liftIO (readIORef ref)
       stringMap <- traverse stringify mapv
       liftIO . putStrLn $ show stringMap <> " " <> show count
 
 checkMethodChain
-  :: ByteString
+  :: ShortByteString
   -> IORef Expr.LoxRuntimeClass
   -> InterpreterM (Maybe Expr.LoxRuntimeFunction)
 checkMethodChain fieldName = go

@@ -34,9 +34,11 @@ import TokenType qualified
 
 main :: IO ()
 main = do
-  P.waitForProcess =<< P.runCommand "cabal build exe:xolsh-exe"
+  let cmd = "cabal build exe:xolsh-exe"
+  putStrLn $ "Running: " <> cmd
+  P.waitForProcess =<< P.runCommand cmd
   xolshexe <- P.readProcess "cabal" ["list-bin", "exe:xolsh-exe"] "" <&> init
-  putStrLn xolshexe
+  putStrLn $ "xolsh-exe at: " <> xolshexe
   defaultMain
     [ bgroup
         "interpretStr"
@@ -73,6 +75,13 @@ main = do
         ]
     ]
   where
+    -- let finalLoxLoxCmd =
+    --       "cat loxexamples/ch10.lox | cabal run xolsh-exe -- loxlox/Lox.lox && eventlog2html xolsh-exe.eventlog && open xolsh-exe.eventlog.html && ll"
+    -- putStrLn $ "Running: " <> finalLoxLoxCmd
+    -- void $
+    --   P.waitForProcess
+    --     =<< P.runCommand finalLoxLoxCmd
+
     benchPrograms :: [(String, ByteString)] -> [Benchmark]
     benchPrograms proglist =
       [ bench (name) $ whnfIO $ interpretStr bs

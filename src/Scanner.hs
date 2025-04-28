@@ -12,6 +12,7 @@ import Control.Monad.RWS.CPS
 import Control.Monad.State.Class (MonadState (get, put), modify')
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
+import Data.ByteString.Short qualified as SBS
 import Data.Char (isAlpha, isDigit)
 import Data.Functor ((<&>))
 import Data.Vector (Vector)
@@ -136,7 +137,7 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
     addToken2 :: forall r. TokenType.TokenType -> ScanM r ()
     addToken2 ttype = modify' $ \sc ->
       -- substring
-      let text = substring sc.source sc.start sc.current
+      let text = SBS.toShort $ substring sc.source sc.start sc.current
        in sc {tokens = sc.tokens <> VB.singleton (TokenType.Token ttype text sc.line)}
     match :: forall r. Char -> ScanM r Bool
     match expected = do
@@ -177,8 +178,8 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
         else do
           advance
           sc <- get
-          let value = substring sc.source (sc.start + 1) (sc.current - 1)
-          addToken2 (TokenType.STRING value)
+          let value = SBS.toShort $ substring sc.source (sc.start + 1) (sc.current - 1)
+          addToken2 (TokenType.STRING $ value)
     number :: forall r. ScanM r ()
     number = do
       whileM

@@ -15,8 +15,9 @@ import Control.Monad.Except (ExceptT, MonadError (..))
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.State.Class qualified as State
 import Control.Monad.State.Strict (StateT)
-import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
+import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as SBS
 import Data.IORef
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
@@ -25,7 +26,7 @@ import {-# SOURCE #-} Expr qualified
 import TokenType qualified
 
 data InterpreterState = InterpreterState
-  { globals :: IORef (Map ByteString Expr.LiteralValue)
+  { globals :: IORef (Map ShortByteString Expr.LiteralValue)
   , environment :: Environment
   }
 
@@ -41,9 +42,9 @@ type InterpreterM a =
 --- module Environment where
 
 data Environment
-  = GlobalEnvironment {values :: IORef (Map ByteString Expr.LiteralValue)}
+  = GlobalEnvironment {values :: IORef (Map ShortByteString Expr.LiteralValue)}
   | LocalEnvironment
-      { values :: IORef (Map ByteString Expr.LiteralValue)
+      { values :: IORef (Map ShortByteString Expr.LiteralValue)
       , _enclosing :: Environment
       }
   deriving (Eq)
@@ -81,7 +82,9 @@ assignAt dist name value environment = do
   assignFromMap name value mapRef
   where
     getAncestor
-      :: Int -> Environment -> InterpreterM (IORef (Map ByteString Expr.LiteralValue))
+      :: Int
+      -> Environment
+      -> InterpreterM (IORef (Map ShortByteString Expr.LiteralValue))
     getAncestor count currEnv =
       if count == 0
         then pure currEnv.values
@@ -94,7 +97,7 @@ assignAt dist name value environment = do
 assignFromMap
   :: TokenType.Token
   -> Expr.LiteralValue
-  -> IORef (Map ByteString Expr.LiteralValue)
+  -> IORef (Map ShortByteString Expr.LiteralValue)
   -> InterpreterM ()
 assignFromMap name value mapRef =
   liftIO (readIORef mapRef) >>= \vmap ->
@@ -102,11 +105,13 @@ assignFromMap name value mapRef =
       then liftIO $ writeIORef mapRef $ M.insert name.lexeme value vmap
       else
         throwError $
-          Error.RuntimeError name ("Undefined variable '" <> name.lexeme <> "'.")
+          Error.RuntimeError
+            name
+            ("Undefined variable '" <> (SBS.fromShort name.lexeme) <> "'.")
 
 getFromMap
   :: TokenType.Token
-  -> IORef (Map ByteString a)
+  -> IORef (Map ShortByteString a)
   -> InterpreterM a
 getFromMap name ref =
   liftIO (readIORef ref) >>= \m -> do
@@ -114,11 +119,13 @@ getFromMap name ref =
       Just v -> pure v
       Nothing ->
         throwError $
-          Error.RuntimeError name ("Undefined variable '" <> name.lexeme <> "'.")
+          Error.RuntimeError
+            name
+            ("Undefined variable '" <> (SBS.fromShort name.lexeme) <> "'.")
 
 {-# INLINEABLE define #-}
 define
-  :: ByteString -> Expr.LiteralValue -> Environment -> InterpreterM ()
+  :: ShortByteString -> Expr.LiteralValue -> Environment -> InterpreterM ()
 define name value environment = do
   liftIO $ modifyIORef' environment.values $ \valueMap -> M.insert name value valueMap
 
