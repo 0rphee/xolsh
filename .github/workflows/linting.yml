@@ -5,6 +5,7 @@ on:
   push:
     branches: ["main"]
     paths:
+      - ".github/workflows/linting.yml"
       - "app/**"
       - "Setup.hs"
       - "src/**"
@@ -17,7 +18,7 @@ jobs:
 
     - uses: haskell-actions/run-fourmolu@v11
       with:
-        version: "0.15.0.0"
+        version: "0.16.2.0"
         pattern: |
           src
           app
