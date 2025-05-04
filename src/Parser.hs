@@ -133,7 +133,7 @@ function kind = do
       False -> pure V.empty
   consume TokenType.RIGHT_PAREN "Expect ')' after parameters."
   consume TokenType.LEFT_BRACE $ "Expect '{' before " <> kind <> " body."
-  Stmt.FFunctionH name parameters <$> block
+  Stmt.FFunctionH name () parameters <$> block
   where
     getParams :: VB.Builder TokenType.Token -> ParserM r (Vector TokenType.Token)
     getParams accum = do

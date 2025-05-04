@@ -75,6 +75,7 @@ library
     -- Control.Monad.Trans.Except.finallyE available until 0.6.0.0 (transformers)
     bytestring,
     containers,
+    growable-vector,
     mtl >=2.3.1,
     time,
     transformers >=0.6.0.0,

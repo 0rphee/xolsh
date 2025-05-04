@@ -18,21 +18,24 @@ import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Short (ShortByteString)
 import Data.ByteString.Short qualified as SBS
 import Data.Foldable (traverse_)
+import Data.Foldable qualified as Foldable
 import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Time.Clock.POSIX qualified as Time
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Vector.Mutable qualified as MV
 import Data.Word (Word8)
-import Environment
+import Environment qualified as Env
 import Error qualified
 import Expr qualified
 import Foreign (Ptr, free, mallocBytes, peek)
+import GHC.Base (RealWorld)
+import GrowableVector.Lifted.Small qualified as GV
 import Numeric qualified
 import Scanner (whileM)
 import Stmt qualified
@@ -40,7 +43,7 @@ import System.Exit qualified
 import System.IO (Handle, hGetBuf, stderr, stdin)
 import TokenType qualified
 
-evaluate :: Expr.Expr2 -> InterpreterM Expr.LiteralValue
+evaluate :: Expr.Expr2 -> Env.InterpreterM Expr.LiteralValue
 evaluate = \case
   Expr.ELiteral val -> pure val
   Expr.ELogical left operator right -> do
@@ -59,7 +62,7 @@ evaluate = \case
       _ -> throwError $ Error.RuntimeError name "Only instances have fields."
   Expr.ESuper keyword superDist methdName -> do
     superclass <-
-      lookUpVariable keyword superDist >>= \case
+      Env.lookUpVariable keyword superDist >>= \case
         Expr.LCallable (Expr.CClass c) -> pure c
         _ ->
           throwError $
@@ -67,7 +70,7 @@ evaluate = \case
               methdName
               "Error in interpreter, looked for 'super' and found something different to a class"
 
-    lookUpVariable
+    Env.lookUpVariable
       (TokenType.Token TokenType.THIS "this" keyword.tline)
       (superDist - 1)
       >>= \case
@@ -88,7 +91,7 @@ evaluate = \case
               keyword
               "Error in interpreter, bug while looking up 'this' for a 'super' call."
   Expr.EThis keyword distance -> do
-    lookUpVariable keyword distance
+    Env.lookUpVariable keyword distance
   Expr.EGrouping expr -> evaluate expr
   Expr.EUnary op expr -> do
     right <- evaluate expr
@@ -153,12 +156,14 @@ evaluate = \case
     evaluate object >>= \case
       Expr.LInstance fields methods -> getInstanceFieldOrMethod fieldName fields methods
       _ -> throwError $ Error.RuntimeError fieldName "Only instances have properties."
-  Expr.EVariable name distance -> lookUpVariable name distance
-  Expr.EAssign name exprValue distance -> do
+  Expr.EVariable name distance -> Env.lookUpVariable name distance
+  Expr.EAssign name exprValue nameInfo -> do
     value <- evaluate exprValue
-    if distance == (-1)
-      then State.gets (.globals) >>= assignFromMap name distance.nameInfo_index value
-      else State.gets (.environment) >>= assignAt distance name value
+    if nameInfo == (-1)
+      then
+        State.gets (.globals)
+          >>= Env.assignFromMap nameInfo.nameInfo_index value
+      else State.gets (.environment) >>= Env.assignAt nameInfo name value
     pure value
   where
     -- See note for Double comparison in Lox in Expr.hs
@@ -168,7 +173,7 @@ getInstanceFieldOrMethod
   :: TokenType.Token
   -> IORef (Map ShortByteString Expr.LiteralValue)
   -> IORef Expr.LoxRuntimeClass
-  -> InterpreterM Expr.LiteralValue
+  -> Env.InterpreterM Expr.LiteralValue
 getInstanceFieldOrMethod fieldName fieldsRef classSuperclass = do
   fields <- liftIO $ readIORef fieldsRef
   case fields M.!? fieldName.lexeme of
@@ -189,20 +194,20 @@ bind
   :: IORef (Map ShortByteString Expr.LiteralValue)
   -> IORef Expr.LoxRuntimeClass
   -> Expr.LoxRuntimeFunction
-  -> InterpreterM (Expr.LoxRuntimeFunction, Expr.LiteralValue)
+  -> Env.InterpreterM (Expr.LoxRuntimeFunction, Expr.LiteralValue)
 bind vecSize fieldsRef classOfInstance runtimeFun = do
   newClosureEnv <-
     liftIO (newIORef =<< MV.new vecSize)
-      <&> \mref -> LocalEnvironment mref runtimeFun.fun_closure
+      <&> \mref -> Env.LocalEnvironment mref runtimeFun.fun_closure
   let classInstance = Expr.LInstance fieldsRef classOfInstance
-  define "this" classInstance newClosureEnv
+  Env.define "this" classInstance newClosureEnv
   pure (runtimeFun {Expr.fun_closure = newClosureEnv}, classInstance) -- TODO
 
 setInstanceField
   :: TokenType.Token
   -> Expr.LiteralValue
   -> IORef (Map ShortByteString Expr.LiteralValue)
-  -> InterpreterM ()
+  -> Env.InterpreterM ()
 setInstanceField name value mref =
   liftIO . modifyIORef' mref $
     \fieldMap -> M.insert name.lexeme value fieldMap
@@ -213,7 +218,7 @@ isTruthy = \case
   Expr.LBool v -> v
   _ -> True
 
-stringify :: Expr.LiteralValue -> InterpreterM ByteString
+stringify :: Expr.LiteralValue -> Env.InterpreterM ByteString
 stringify = \case
   Expr.LNil -> pure "nil"
   Expr.LNumber v ->
@@ -233,7 +238,7 @@ stringify = \case
     cname <- liftIO (readIORef cref) <&> (.class_name) <&> SBS.fromShort
     pure $ cname <> " instance"
 
-execute :: Stmt.Stmt2 -> InterpreterM ()
+execute :: Stmt.Stmt2 -> Env.InterpreterM ()
 execute = \case
   Stmt.SExpression expression -> void $ evaluate expression
   Stmt.SIf condition thenBranch elseBranch -> do
@@ -243,14 +248,14 @@ execute = \case
       else traverse_ execute elseBranch
   Stmt.SPrint expression ->
     evaluate expression >>= stringify >>= liftIO . BS.putStrLn
-  Stmt.SReturn _ valueExpr -> do
+  Stmt.SReturn _token valueExpr -> do
     value <- fromMaybe Expr.LNil <$> traverse evaluate valueExpr
     throwError $ Error.RuntimeReturn value
-  Stmt.SVar name initializer -> do
+  Stmt.SVar nameInfo initializer -> do
     value <- case initializer of
       Nothing -> pure Expr.LNil
       Just v -> evaluate v
-    State.get >>= \st -> define name.lexeme value st.environment
+    State.get >>= \st -> Env.define nameInfo value st.environment -- TODO undefined
   Stmt.SWhile condition body -> do
     whileM
       (isTruthy <$> evaluate condition)
@@ -258,10 +263,13 @@ execute = \case
   Stmt.SBlock statements -> do
     newEnvValueMapRef <- liftIO $ newIORef mempty
     prevEnv <- State.gets (.environment)
-    executeBlock statements prevEnv (LocalEnvironment newEnvValueMapRef prevEnv)
-  Stmt.SClass klassName maySuperClassInfo _methods -> do
+    executeBlock
+      statements
+      prevEnv
+      (Env.LocalEnvironment newEnvValueMapRef prevEnv)
+  Stmt.SClass classNameInfo maySuperClassInfo _methods -> do
     origEnv <- State.gets (.environment)
-    define klassName.lexeme Expr.LNil origEnv
+    Env.define classNameInfo.lexeme Expr.LNil origEnv
     maySuperClass <- case maySuperClassInfo of
       Nothing -> pure Nothing
       Just (superclassTok, dist) -> do
@@ -270,15 +278,15 @@ execute = \case
             c@(Expr.LCallable (Expr.CClass superclassRef)) -> do
               oldEnv <- State.gets (.environment)
               newEnv <- do
-                superEnvRef <- liftIO $ newIORef M.empty
-                pure $ LocalEnvironment superEnvRef oldEnv
-              State.modify' $ \st -> st {environment = newEnv}
-              define "super" c newEnv
+                superEnvRef <- liftIO $ newIORef =<< GV.new
+                pure $ Env.LocalEnvironment superEnvRef oldEnv
+              State.modify' $ \st -> st {Env.environment = newEnv}
+              Env.define "super" c newEnv
               pure $ Just superclassRef
             _ -> throwError $ Error.RuntimeError superclassTok "Superclass must be a class."
     (mayInitMethdThisClass, thisClassMethods) <-
       V.foldM
-        ( \(prevMayInit, acc) next@(Stmt.FFunctionH fname _ _) -> do
+        ( \(prevMayInit, acc) next@(Stmt.FFunctionH fname fnameInfo _ _) -> do
             let isInit = fname.lexeme == "init"
             fun <- newFun next isInit
             let mayInit = if isInit then Just fun else prevMayInit
@@ -297,7 +305,7 @@ execute = \case
                 Just superInitMthd -> pure $ Just superInitMthd
                 Nothing -> pure Nothing
         just -> do pure just
-    when (isJust maySuperClass) $ State.modify' $ \st -> st {environment = st.environment._enclosing} -- restore "super" binding
+    when (isJust maySuperClass) $ State.modify' $ \st -> st {Env.environment = st.environment._enclosing} -- restore "super" binding
     let (classArity, initMaker) = case mayInitWSuper of
           Just originalInitMthd -> do
             let initM fieldMapRef thisClassRef args = do
@@ -315,7 +323,7 @@ execute = \case
         Expr.LCallable . Expr.CClass
           <$> ( newIORef $
                   Expr.LRClass
-                    { Expr.class_name = klassName.lexeme
+                    { Expr.class_name = classNameInfo.lexeme
                     , Expr.class_arity = classArity
                     , Expr.class_call = \thisClassRef args -> do
                         fieldMapRef <- liftIO $ newIORef M.empty
@@ -325,15 +333,16 @@ execute = \case
                     }
               )
 
-    assignFromMap klassName klass origEnv.values
-  Stmt.SFunction f@(Stmt.FFunctionH name _params _body) -> do
+    Env.assignFromMap classNameInfo.nameInfo_index klass origEnv.values
+  Stmt.SFunction f@(Stmt.FFunctionH name nameInfo _params _body) -> do
     -- environment of the function where it is declared
     function <- Expr.LCallable . Expr.CFunction <$> newFun f False
-    State.get >>= \st -> define name.lexeme function st.environment
+    State.get >>= \st -> Env.define nameInfo function st.environment
 
-newFun :: Stmt.FunctionH2 -> Bool -> InterpreterM Expr.LoxRuntimeFunction
+newFun
+  :: Stmt.FunctionH2 -> Bool -> Env.InterpreterM Expr.LoxRuntimeFunction
 newFun fun isInitializer = case fun of
-  Stmt.FFunctionH name params body -> do
+  Stmt.FFunctionH name nameInfo params body -> do
     -- environment of the function where it is declared
     closure <- State.gets (.environment)
     let function =
@@ -347,24 +356,20 @@ newFun fun isInitializer = case fun of
     pure function
 
 call
-  :: Environment
+  :: Env.Environment
   -> TokenType.Token
   -> Vector Stmt.Stmt2
   -> Vector TokenType.Token
   -> Vector Expr.LiteralValue
   -> Bool
-  -> InterpreterM Expr.LiteralValue
+  -> Env.InterpreterM Expr.LiteralValue
 call closure funToken body params args isInitializer = do
   -- environment of the function before being called
   prevEnv <- State.gets (.environment)
   -- local environment of the function with arguments paired with parameters
-  funcEnvironment <-
-    V.zipWith (\tok -> (tok.lexeme,)) params args
-      & V.toList
-      & M.fromList
-      & newIORef
-      & liftIO
-      <&> (`LocalEnvironment` closure)
+  funcEnvironment <- do
+    ref <- args & GV.fromFoldable >>= liftIO . newIORef
+    pure $ Env.LocalEnvironment ref closure
   -- if the function does not return via a return stmt, it will default to nil
   executeWithinEnvs within prevEnv funcEnvironment
   where
@@ -381,37 +386,48 @@ call closure funToken body params args isInitializer = do
           if isInitializer
             then execIfInit
             else pure Expr.LNil
+    execIfInit :: Env.InterpreterM Expr.LiteralValue
     execIfInit = do
-      liftIO (readIORef closure.values) >>= \vmap ->
-        case vmap M.!? "this" of
-          Just thisInstance ->
-            pure thisInstance
-          Nothing ->
-            throwError $
-              Error.RuntimeError
-                funToken
-                "Error in interpreter, should have found reference to 'this' to return in _.init() class method."
+      -- it is assumed that the first value assigned in the closure is 'this' instance
+      liftIO (readIORef closure.values) >>= \vec ->
+        GV.read vec 0 <&> fromJust -- TODO better error message
+
+-- case vec M.!? "this" of
+--   Just thisInstance ->
+--     pure thisInstance
+--   Nothing ->
+--     throwError $
+--       Error.RuntimeError
+--         funToken
+--         "Error in interpreter, should have found reference to 'this' to return in _.init() class method."
 
 executeBlock
-  :: Vector Stmt.Stmt2 -> Environment -> Environment -> InterpreterM ()
+  :: Vector Stmt.Stmt2
+  -> Env.Environment
+  -> Env.Environment
+  -> Env.InterpreterM ()
 executeBlock statements = executeWithinEnvs (executeStmts statements)
 
 executeWithinEnvs
-  :: InterpreterM a -> Environment -> Environment -> InterpreterM a
+  :: Env.InterpreterM a
+  -> Env.Environment
+  -> Env.Environment
+  -> Env.InterpreterM a
 executeWithinEnvs action prevEnv tempEnv = do
   State.modify' $ \st ->
-    st {environment = tempEnv}
+    st {Env.environment = tempEnv}
   finallyE action $ do
-    State.modify' $ \st -> st {environment = prevEnv}
+    State.modify' $ \st -> st {Env.environment = prevEnv}
 
 interpret :: Vector Stmt.Stmt2 -> IO Error.ErrorPresent
 interpret statements = do
-  globalsRef <- newIORef M.empty
-  writeIORef globalsRef $ globals globalsRef
+  globalsRef <- GV.new >>= newIORef
+  globalss <- globals globalsRef
+  writeIORef globalsRef $ globalss
   let initialInterpreterState =
-        InterpreterState
-          { environment = GlobalEnvironment globalsRef
-          , globals = globalsRef
+        Env.InterpreterState
+          { Env.environment = Env.GlobalEnvironment globalsRef
+          , Env.globals = globalsRef
           }
   value <-
     State.evalStateT (runExceptT $ executeStmts statements) initialInterpreterState
@@ -419,8 +435,11 @@ interpret statements = do
     Left e -> Error.reportRuntimeError e >> pure Error.Error
     Right () -> pure Error.NoError
   where
+    globals
+      :: IORef (Env.Vec Expr.LiteralValue)
+      -> IO (Env.Vec (ShortByteString, Expr.LiteralValue))
     globals globalsRef =
-      M.fromList
+      GV.fromFoldable
         [
           ( "clock"
           , Expr.LCallable $
@@ -428,7 +447,7 @@ interpret statements = do
                 Expr.LRFunction
                   { Expr.fun_toString = "<native fn>"
                   , Expr.fun_arity = 0
-                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_closure = Env.GlobalEnvironment globalsRef
                   , Expr.fun_isInitializer = False
                   , Expr.fun_call = \_evaluator _args ->
                       -- realToFrac & fromIntegral treat NominalDiffTime as seconds
@@ -442,7 +461,7 @@ interpret statements = do
                 Expr.LRFunction
                   { Expr.fun_toString = "<native fn>"
                   , Expr.fun_arity = 0
-                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_closure = Env.GlobalEnvironment globalsRef
                   , Expr.fun_isInitializer = False
                   , Expr.fun_call = \_evaluator _args ->
                       liftIO $ readByte stdin
@@ -456,7 +475,7 @@ interpret statements = do
                 Expr.LRFunction
                   { Expr.fun_toString = "<native fn>"
                   , Expr.fun_arity = 4
-                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_closure = Env.GlobalEnvironment globalsRef
                   , Expr.fun_isInitializer = False
                   , Expr.fun_call = \_evaluator _args -> do
                       let bytes =
@@ -474,7 +493,7 @@ interpret statements = do
                 Expr.LRFunction
                   { Expr.fun_toString = "<native fn>"
                   , Expr.fun_arity = 1
-                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_closure = Env.GlobalEnvironment globalsRef
                   , Expr.fun_isInitializer = False
                   , Expr.fun_call = \_evaluator _args ->
                       let exitCode = case _args `V.unsafeIndex` 0 of
@@ -490,7 +509,7 @@ interpret statements = do
                 Expr.LRFunction
                   { Expr.fun_toString = "<native fn>"
                   , Expr.fun_arity = 1
-                  , Expr.fun_closure = GlobalEnvironment globalsRef
+                  , Expr.fun_closure = Env.GlobalEnvironment globalsRef
                   , Expr.fun_isInitializer = False
                   , Expr.fun_call = \_evaluator _args -> do
                       errstr <- stringify $ _args `V.unsafeIndex` 0
@@ -515,16 +534,17 @@ readByte handle = do
   free buffer
   pure res
 
-executeStmts :: Vector Stmt.Stmt2 -> InterpreterM ()
+executeStmts :: Vector Stmt.Stmt2 -> Env.InterpreterM ()
 executeStmts = traverse_ execute
 
 recPrintEnvs
-  :: Environment -> Int -> InterpreterM ()
+  :: Env.Environment -> Int -> Env.InterpreterM ()
 recPrintEnvs env count = case env of
-  GlobalEnvironment v -> printEnvRef v
-  LocalEnvironment v enc -> printEnvRef v >> recPrintEnvs enc (count + 1)
+  Env.GlobalEnvironment v -> printEnvRef v
+  Env.LocalEnvironment v enc -> printEnvRef v >> recPrintEnvs enc (count + 1)
   where
-    printEnvRef :: IORef (Map ShortByteString Expr.LiteralValue) -> InterpreterM ()
+    printEnvRef
+      :: IORef (Env.Vec Expr.LiteralValue) -> Env.InterpreterM ()
     printEnvRef ref = do
       mapv <- liftIO (readIORef ref)
       stringMap <- traverse stringify mapv
@@ -533,10 +553,12 @@ recPrintEnvs env count = case env of
 checkMethodChain
   :: ShortByteString
   -> IORef Expr.LoxRuntimeClass
-  -> InterpreterM (Maybe Expr.LoxRuntimeFunction)
+  -> Env.InterpreterM (Maybe Expr.LoxRuntimeFunction)
 checkMethodChain fieldName = go
   where
-    go :: IORef Expr.LoxRuntimeClass -> InterpreterM (Maybe Expr.LoxRuntimeFunction)
+    go
+      :: IORef Expr.LoxRuntimeClass
+      -> Env.InterpreterM (Maybe Expr.LoxRuntimeFunction)
     go ref = do
       klass <- liftIO (readIORef ref)
       checkMethods klass >>= \case
@@ -547,7 +569,7 @@ checkMethodChain fieldName = go
       where
         checkMethods
           :: Expr.LoxRuntimeClass
-          -> InterpreterM (Maybe Expr.LoxRuntimeFunction)
+          -> Env.InterpreterM (Maybe Expr.LoxRuntimeFunction)
         checkMethods klass = do
           vmap <- liftIO (readIORef klass.class_methods)
           pure (vmap M.!? fieldName)

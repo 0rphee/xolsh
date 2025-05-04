@@ -10,3 +10,5 @@ if !arch(wasm32) && impl(ghc >= 9.10)
     location: https://github.com/konn/ghc-wasm-earthly
     tag: 73f7dfa745d040e30f6652dac27bedd6c934fc8a
     subdir: ghc-wasm-compat
+
+allow-newer: growable-vector:base

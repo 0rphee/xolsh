@@ -4,7 +4,7 @@
 module Resolver (runResolver) where
 
 import Control.Monad (when)
-import Control.Monad.RWS.CPS (RWST, evalRWST)
+import Control.Monad.RWS.CPS qualified as RWST
 import Control.Monad.State.Class qualified as State
 import Data.ByteString.Short (ShortByteString)
 import Data.Foldable (traverse_)
@@ -30,23 +30,29 @@ data ClassType
   | CTSubclass
 
 data ResolverState = ResolverState
-  { scopes :: ![Map ShortByteString Bool]
+  { globalScope :: !(Map ShortByteString (Bool, Int))
+  , scopes :: ![Map ShortByteString (Bool, Int)]
   , currentFunction :: !FunctionType
   , currentClass :: !ClassType
-  , currentBindings :: !Int
   }
 
-type ResolverM a = RWST () Error.ErrorPresent ResolverState IO a
+type ResolverM a = RWST.RWST () Error.ErrorPresent ResolverState IO a
 
 runResolver
   :: Vector Stmt.Stmt1 -> IO (Maybe (Vector Stmt.Stmt2))
 runResolver stmts = do
-  (r, w) <- evalRWST (resolveStmts stmts) () initialResolverState
+  (r, w) <- RWST.evalRWST (resolveStmts stmts) () initialResolverState
   pure $ case w of
     Error.NoError -> Just r
     Error.Error -> Nothing
   where
-    initialResolverState = ResolverState {scopes = [], currentFunction = FTNone, currentClass = CTNone}
+    initialResolverState =
+      ResolverState
+        { globalScope = M.empty -- Todo, add builtin values
+        , scopes = []
+        , currentFunction = FTNone
+        , currentClass = CTNone
+        }
     resolveStmts = traverse resolveStmt
 
 resolveStmt :: Stmt.Stmt1 -> ResolverM Stmt.Stmt2
@@ -59,7 +65,7 @@ resolveStmt = \case
   Stmt.SClass name superclass _methods -> do
     enclosingClass <- State.gets (.currentClass)
     State.modify' $ \st -> st {currentClass = CTClass}
-    declare name
+    classNameInfo <- declare name
     define name
     nSuperclass <- case superclass of
       Just (superclassTok, ()) -> do
@@ -72,39 +78,39 @@ resolveStmt = \case
         pure nSuperClass
       Nothing -> pure Nothing
 
-    beginScope
-    newSt <-
-      State.get >>= \oldSt -> do
-        newSc <- case oldSt.scopes of
-          [] -> do
-            Error.resolverError name "Failure in resolver, bug in interpreter"
-            pure []
-          (x : xs) -> pure $ M.insert "this" True x : xs
-        pure $ oldSt {scopes = newSc}
-    State.put newSt
-
-    nMethods <-
+    nMethods <- withinNewScope $ do
+      newSt <-
+        State.get >>= \oldSt -> do
+          newSc <- case oldSt.scopes of
+            [] -> do
+              Error.resolverError name "Failure in resolver, bug in interpreter"
+              pure []
+            (x : xs) -> do
+              pure $ M.insert "this" (True, M.size x + 1) x : xs
+          pure $ oldSt {scopes = newSc}
+      State.put newSt
       traverse
-        ( \(Stmt.FFunctionH fname params body) -> do
+        ( \(Stmt.FFunctionH fname () params body) -> do
             let funtype = if fname.lexeme == "init" then FTInitializer else FTMethod
+            -- TODO maybe remove declare???
+            nameInfo <- declare fname
             nBody <- resolveFunction params body funtype
-            pure $ Stmt.FFunctionH fname params nBody
+            pure $ Stmt.FFunctionH fname nameInfo params nBody
         )
         _methods
-    endScope
 
     when (isJust nSuperclass) endScope -- end scope for "super"
     State.modify' $ \st -> st {currentClass = enclosingClass}
-    pure $ Stmt.SClass name nSuperclass nMethods
+    pure $ Stmt.SClass classNameInfo nSuperclass nMethods
   Stmt.SVar name initializer -> do
-    declare name
+    nameInfo <- declare name
     nInitializer <- traverse resolveExpr initializer
     define name
-    pure $ Stmt.SVar name nInitializer
-  Stmt.SFunction (Stmt.FFunctionH name params body) -> do
-    declare name >> define name
+    pure $ Stmt.SVar nameInfo nInitializer
+  Stmt.SFunction (Stmt.FFunctionH name () params body) -> do
+    nameInfo <- declare name <* define name
     nBody <- resolveFunction params body FTFunction
-    pure $ Stmt.SFunction $ Stmt.FFunctionH name params nBody
+    pure $ Stmt.SFunction $ Stmt.FFunctionH name nameInfo params nBody
   Stmt.SExpression expr -> Stmt.SExpression <$> resolveExpr expr
   Stmt.SIf cond thenBody elseBody -> do
     nCond <- resolveExpr cond
@@ -137,32 +143,42 @@ resolveFunction
 resolveFunction params body funType = do
   enclosing <- State.gets (.currentFunction)
   State.modify' $ \st -> st {currentFunction = funType}
-  beginScope
-  traverse_ (\param -> declare param >> define param) params
-  nBody <- traverse resolveStmt body
-  State.modify' $ \st -> st {currentFunction = enclosing}
-  endScope
+  nBody <- withinNewScope $ do
+    traverse_ (\param -> declare param >> define param) params
+    nBody <- traverse resolveStmt body
+    State.modify' $ \st -> st {currentFunction = enclosing}
+    pure nBody
   pure nBody
 
-resolveVariableName :: TokenType.Token -> ResolverM Int
+resolveVariableName :: TokenType.Token -> ResolverM Expr.NameInfo
 resolveVariableName name = do
   State.gets (.scopes) >>= \case
     [] -> pure ()
     (closestScope : _) ->
       case closestScope M.!? name.lexeme of
-        Just False ->
+        Just (False, _) ->
           Error.resolverError name "Can't read local variable in its own initializer."
         _ -> pure ()
-  resolveLocal name.lexeme
+  resolveLocal name
 
 resolveExpr :: Expr.Expr1 -> ResolverM Expr.Expr2
 resolveExpr = \case
   Expr.EVariable name _ -> do
-    distance <- resolveVariableName name
-    pure $ Expr.EVariable name distance
+    nameInfo <- resolveVariableName name
+    -- State.modify' $ \st -> st {currentBindings = st.currentBindings + 1}
+    -- currBindingsIndex <- State.gets (.currentBindings)
+    pure $
+      Expr.EVariable
+        name
+        nameInfo
+  -- ( Expr.NameInfo
+  --     { Expr.nameInfo_index = currBindingsIndex
+  --     , Expr.nameInfo_scope = distance
+  --     }
+  -- )
   Expr.EAssign name value _ -> do
     nValue <- resolveExpr value
-    distance <- resolveLocal name.lexeme
+    distance <- resolveLocal name
     pure $ Expr.EAssign name nValue distance
   Expr.EBinary left t right -> do
     nL <- resolveExpr left
@@ -192,15 +208,15 @@ resolveExpr = \case
       CTClass ->
         Error.resolverError keyword "Can't use 'super' in a class with no superclass."
       CTSubclass -> pure ()
-    kDist <- resolveLocal keyword.lexeme
+    kDist <- resolveLocal keyword
     pure $ Expr.ESuper keyword kDist mthd -- TODO
   Expr.EThis keyword _ -> do
     distance <-
       State.gets (.currentClass) >>= \case
         CTNone -> do
           Error.resolverError keyword "Can't use 'this' outside of a class."
-          pure 0
-        _ -> resolveLocal keyword.lexeme
+          pure $ Expr.NameInfo {Expr.nameInfo_index = 0, Expr.nameInfo_scope = 0}
+        _ -> resolveLocal keyword
     pure $ Expr.EThis keyword distance
   Expr.EUnary t expr -> Expr.EUnary t <$> resolveExpr expr
 
@@ -214,35 +230,94 @@ endScope = State.modify $ \st ->
         (_ : xs) -> xs
    in st {scopes = ns}
 
-declare :: TokenType.Token -> ResolverM ()
+withinNewScope :: ResolverM a -> ResolverM a
+withinNewScope act = beginScope >> act <* endScope
+
+declare :: TokenType.Token -> ResolverM Expr.NameInfo
 declare name =
   State.get >>= \st ->
     case st.scopes of
-      [] -> pure ()
+      [] -> do
+        oldM <- State.gets (.globalScope)
+        let ix = M.size oldM + 1
+        case M.insertLookupWithKey @_ @(Bool, Int)
+          (\_k _o n -> n)
+          name.lexeme
+          (False, ix)
+          oldM of
+          (Just _old, _) -> do
+            Error.resolverError
+              name
+              "Already a variable with this name in the global scope."
+            pure $ Expr.NameInfo {Expr.nameInfo_index = 0, Expr.nameInfo_scope = 0}
+          (Nothing, newM) -> do
+            State.put $ st {globalScope = newM}
+            pure $ Expr.NameInfo {Expr.nameInfo_index = ix, Expr.nameInfo_scope = -1}
       (oldM : xs) ->
-        --  M.insert name.lexeme True x : xs
-        case M.insertLookupWithKey (\_k _o n -> n) name.lexeme False oldM of
-          (Just _old, _) -> Error.resolverError name "Already a variable with this name in this scope."
-          (Nothing, newM) -> State.put $ st {scopes = newM : xs}
+        let ix = M.size oldM + 1
+         in case M.insertLookupWithKey @_ @(Bool, Int)
+              (\_k _o n -> n)
+              name.lexeme
+              (False, ix)
+              oldM of
+              (Just _old, _) -> do
+                Error.resolverError name "Already a variable with this name in this scope."
+                pure $ Expr.NameInfo {Expr.nameInfo_index = 0, Expr.nameInfo_scope = 0}
+              (Nothing, newM) -> do
+                State.put $ st {scopes = newM : xs}
+                pure $ Expr.NameInfo {Expr.nameInfo_index = ix, Expr.nameInfo_scope = 0}
 
 define :: TokenType.Token -> ResolverM ()
 define name =
-  State.modify' $ \st ->
-    let newSc =
-          case st.scopes of
-            [] -> []
-            (x : xs) -> M.insert name.lexeme True x : xs
-     in st {scopes = newSc}
+  State.modify' $ \st -> do
+    case st.scopes of
+      [] ->
+        st
+          { globalScope =
+              M.insertWith
+                (\(_false, n) (_true, _) -> (True, n))
+                name.lexeme
+                (True, M.size st.globalScope + 1)
+                st.globalScope
+          }
+      (x : xs) ->
+        st
+          { scopes =
+              M.insertWith
+                (\(_false, n) (_true, _) -> (True, n))
+                name.lexeme
+                (True, M.size x + 1)
+                x
+                : xs
+          }
 
-resolveLocal :: ShortByteString -> ResolverM Int
+resolveLocal :: TokenType.Token -> ResolverM Expr.NameInfo
 resolveLocal name = do
   scopes <- State.gets (.scopes)
   go 0 scopes
   where
-    go :: Int -> [Map ShortByteString Bool] -> ResolverM Int
-    go count = \case
-      [] -> pure (-1)
+    go :: Int -> [Map ShortByteString (Bool, Int)] -> ResolverM Expr.NameInfo
+    go distanceCount = \case
+      [] -> do
+        globalScope <- State.gets (.globalScope)
+        case M.lookup name.lexeme globalScope of
+          Just (_, ix) -> pure (Expr.NameInfo {Expr.nameInfo_index = ix, Expr.nameInfo_scope = -1})
+          Nothing -> do
+            Error.resolverError name "Name without referent -1."
+            pure (Expr.NameInfo {Expr.nameInfo_index = -1, Expr.nameInfo_scope = -1})
       (x : xs) ->
-        if M.member name x
-          then pure count
-          else go (count + 1) xs
+        case M.lookup name.lexeme x of
+          Just (_, ix) ->
+            pure
+              ( Expr.NameInfo
+                  { Expr.nameInfo_index = ix
+                  , Expr.nameInfo_scope = distanceCount
+                  }
+              )
+          Nothing -> go (distanceCount + 1) xs
+
+modifyAndGet :: (ResolverState -> ResolverState) -> ResolverM ResolverState
+modifyAndGet f = do
+  newState <- State.gets f
+  State.put newState
+  pure newState

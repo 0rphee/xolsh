@@ -5,6 +5,7 @@ module Environment
   ( InterpreterState (..)
   , InterpreterM
   , Environment (..)
+  , Vec
   , lookUpVariable
   , assignAt
   , assignFromMap
@@ -12,6 +13,7 @@ module Environment
   )
 where
 
+import Control.Monad (void)
 import Control.Monad.Except (ExceptT, MonadError (..))
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.State.Class qualified as State
@@ -23,10 +25,14 @@ import Data.IORef
 import Data.Vector.Mutable qualified as MV
 import Error qualified
 import {-# SOURCE #-} Expr qualified
+import GHC.Base (RealWorld)
+import GrowableVector.Lifted.Small qualified as GV
 import TokenType qualified
 
+type Vec element = GV.Vec RealWorld element
+
 data InterpreterState = InterpreterState
-  { globals :: IORef (MV.IOVector Expr.LiteralValue)
+  { globals :: IORef (Vec Expr.LiteralValue)
   , environment :: Environment
   }
 
@@ -42,9 +48,9 @@ type InterpreterM a =
 --- module Environment where
 
 data Environment
-  = GlobalEnvironment {values :: IORef (MV.IOVector Expr.LiteralValue)}
+  = GlobalEnvironment {values :: IORef (Vec Expr.LiteralValue)}
   | LocalEnvironment
-      { values :: IORef (MV.IOVector Expr.LiteralValue)
+      { values :: IORef (Vec Expr.LiteralValue)
       , _enclosing :: Environment
       }
   deriving (Eq)
@@ -84,11 +90,11 @@ assignAt
   -> Environment
   -> InterpreterM ()
 assignAt nameInfo name value environment = do
-  mapRef <- getAncestor nameInfo.nameInfo_scope environment
-  assignFromMap name nameInfo.nameInfo_index value mapRef
+  vecRef <- getAncestor nameInfo.nameInfo_scope environment
+  assignFromMap nameInfo.nameInfo_index value vecRef
   where
     getAncestor
-      :: Int -> Environment -> InterpreterM (IORef (MV.IOVector Expr.LiteralValue))
+      :: Int -> Environment -> InterpreterM (IORef (Vec Expr.LiteralValue))
     getAncestor !count !currEnv =
       if count == 0
         then pure currEnv.values
@@ -98,44 +104,39 @@ assignAt nameInfo name value environment = do
               Error.RuntimeError name "Failure in resolver, bug in interpreter (assignAt)."
           LocalEnvironment _ enc -> getAncestor (count - 1) enc
 
+-- TODO: we now assign the value without any checking if it already exists, if the value was undefined, it will now error out in the resolver.
 assignFromMap
-  :: TokenType.Token
-  -> Int
+  :: Int
   -> Expr.LiteralValue
-  -> IORef (MV.IOVector Expr.LiteralValue)
+  -> IORef (Vec Expr.LiteralValue)
   -> InterpreterM ()
-assignFromMap name ix value mapRef =
-  liftIO (readIORef mapRef) >>= \vmap ->
-    if M.member name.lexeme vmap
-      then liftIO $ writeIORef mapRef $ M.insert name.lexeme value vmap
-      else
-        throwError $
-          Error.RuntimeError
-            name
-            ("Undefined variable '" <> (SBS.fromShort name.lexeme) <> "'.")
+assignFromMap ix value vecRef =
+  void . liftIO $
+    (readIORef vecRef) >>= \vec -> GV.write vec (fromIntegral ix) value
 
 getFromMap
   :: TokenType.Token
   -> Int
-  -> IORef (MV.IOVector a)
+  -> IORef (Vec a)
   -> InterpreterM a
 getFromMap name ix ref = do
   vec <- liftIO (readIORef ref)
-  liftIO (MV.readMaybe vec ix) >>= \case
+  liftIO (GV.read vec (fromIntegral ix)) >>= \case
     Just v -> pure v
     Nothing ->
       throwError $
-        Error.RuntimeError name ("Undefined variable '" <> name.lexeme <> "'.")
+        Error.RuntimeError
+          name
+          ("Undefined variable '" <> SBS.fromShort name.lexeme <> "'.")
 
 {-# INLINEABLE define #-}
 define
-  :: ByteString
-  -> Expr.NameInfo
+  :: Expr.NameInfo
   -> Expr.LiteralValue
   -> Environment
   -> InterpreterM ()
-define name nameInfo value environment = do
-  liftIO $
-    readIORef environment.values >>= \ref -> MV.write ref nameInfo.nameInfo_index value
+define nameInfo value environment = do
+  void . liftIO $
+    readIORef environment.values >>= \ref -> GV.write ref (fromIntegral nameInfo.nameInfo_index) value
 
 --  liftIO $ modifyIORef' environment.values $ \valueMap -> M.insert name value valueMap
