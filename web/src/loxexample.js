@@ -1,4 +1,7 @@
 const originalLoxFileString = `
+// To take into account time
+var t1 = clock();
+
 // Base class for a Calculator
 class Calculator {
   compute(x) {
@@ -51,6 +54,11 @@ showRes("Fibonacci", fibCalculator.perform);
 // Using a Factorial calculator
 var factCalculator = DynamicCalculator(Factorial());
 showRes("Factorial", factCalculator.perform);
+
+// Total time
+print "Total time (seconds)";
+var t2 = clock();
+print t2-t1;
 `;
 
 export { originalLoxFileString };
