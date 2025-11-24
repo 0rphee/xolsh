@@ -29,7 +29,7 @@ jobs:
     steps:
       - name: Extract the tested GHC versions
         id: set-matrix
-        uses: kleidukos/get-tested@0.1.7.1
+        uses: kleidukos/get-tested@v0.1.9.1
         with:
           cabal-file: xolsh.cabal
           ubuntu-version: latest
