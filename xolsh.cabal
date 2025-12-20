@@ -54,7 +54,6 @@ library
   if flag(memory-profiling)
     ghc-options:
       -finfo-table-map
-
   hs-source-dirs:
     src
 
@@ -64,6 +63,7 @@ library
     Error
     Expr
     Interpreter
+    Optimizer
     Parser
     Resolver
     Scanner
@@ -76,11 +76,11 @@ library
     bytestring,
     containers,
     mtl >=2.3.1,
+    template-haskell,
     time,
     transformers >=0.6.0.0,
     vector,
     vector-builder,
-    template-haskell,
 
 executable xolsh-exe
   import:
@@ -99,11 +99,11 @@ executable xolsh-exe
       -threaded
       -rtsopts
       -with-rtsopts=-N
+
   if flag(memory-profiling)
     ghc-options:
       -finfo-table-map
       "-with-rtsopts=-N -T -hi -l"
-
   hs-source-dirs:
     app
 
@@ -141,13 +141,13 @@ benchmark xolsh-bench
     Programs
 
   build-depends:
-    template-haskell,
-    th-lift-instances,
     bytestring,
+    process,
     silently,
     string-interpolate >=0.3.0.0,
     tasty,
     tasty-bench,
-    xolsh,
-    process,
+    template-haskell,
+    th-lift-instances,
     vector,
+    xolsh,

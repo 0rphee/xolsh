@@ -13,6 +13,7 @@ import Error qualified
 import Instances.TH.Lift ()
 import Interpreter qualified
 import Language.Haskell.TH.Syntax qualified as TH
+import Optimizer qualified
 import Parser qualified
 import Programs qualified
 import Resolver qualified
@@ -133,7 +134,7 @@ interpretStr sourceBS = do
       case maybeStmts of
         Nothing -> fail "Error while scanning or parsing."
         Just stmts -> do
-          liftIO (Resolver.runResolver stmts) >>= \case
+          liftIO ((fmap Optimizer.runOptimizer) <$> Resolver.runResolver stmts) >>= \case
             Nothing -> fail "Error in resolver."
             Just stmts2 -> do
               (Silently.silence $ Interpreter.interpret stmts2) >>= \case

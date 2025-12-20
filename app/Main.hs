@@ -12,6 +12,7 @@ import Data.ByteString.Char8 qualified as B
 import Data.IORef qualified as IORef
 import Error qualified
 import Interpreter (interpret)
+import Optimizer (runOptimizer)
 import Parser (runParse)
 import Resolver (runResolver)
 import Scanner
@@ -82,7 +83,7 @@ run sourceBS = do
           pure ()
         Just stmts -> do
           -- lift . liftIO $ B.putStrLn "parse success"
-          liftIO (runResolver stmts) >>= \case
+          liftIO ((fmap runOptimizer) <$> (runResolver stmts)) >>= \case
             Nothing ->
               ask >>= \ref -> liftIO $
                 IORef.modifyIORef' ref.unGlobal $
