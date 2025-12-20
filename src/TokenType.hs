@@ -1,10 +1,10 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module TokenType
   ( TokenType (..)
   , Token (..)
-  -- Literal (..)
   )
 where
 
@@ -57,13 +57,6 @@ data TokenType
   | WHILE
   | EOF
   deriving (Eq, Show, Lift)
-
--- data Literal
---   = LitStr !ByteString
---   | LitNum !Double
---   | LitBool !Bool
---   | LitNil
---   deriving (Show)
 
 data Token = Token
   { ttype :: !TokenType

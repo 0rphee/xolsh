@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 
-module Stmt (Stmt1, Stmt2, Stmt (..), FunctionH (..), FunctionH1, FunctionH2) where
+module Stmt (Stmt1, Stmt2, Stmt (..), FunctionH (..), FunctionH1, FunctionH2, getType) where
 
 import Data.Vector (Vector)
 import {-# SOURCE #-} Expr qualified
@@ -59,3 +60,15 @@ data FunctionH (phase :: Expr.IPhase)
     -- >   (Vector Token) -- params
     -- >   (Vector (Stmt phase))  -- body
     FFunctionH !TokenType.Token !(Vector TokenType.Token) !(Vector (Stmt phase))
+
+getType :: Stmt a -> String
+getType = \case
+  SBlock _ -> "SBlock"
+  SClass _ _ _ -> "SClass"
+  SExpression _ -> "SExpression"
+  SFunction _ -> "SFunction"
+  SIf _ _ _ -> "SIf"
+  SPrint _ -> "SPrint"
+  SReturn _ _ -> "SReturn"
+  SVar _ _ -> "SVar"
+  SWhile _ _ -> "SWhile"

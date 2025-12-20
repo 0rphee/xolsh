@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -13,6 +14,8 @@ module Expr
   , XEnvDistance
   , LoxRuntimeFunction (..)
   , LoxRuntimeClass (..)
+  , isNumericalOperator
+  , literalValueType
   )
 where
 
@@ -22,7 +25,7 @@ import Data.Map.Strict (Map)
 import Data.Vector (Vector)
 import Environment (Environment, InterpreterM)
 import Stmt qualified
-import TokenType (Token (..))
+import TokenType (Token (..), TokenType (..))
 
 data IPhase = PH1 | PH2
 
@@ -55,8 +58,7 @@ data Expr (phase :: IPhase)
     EGet !(Expr phase) !Token
   | -- | > EGrouping
     -- >   (Expr phase)-- expression
-    EGrouping
-      !(Expr phase)
+    EGrouping !(Expr phase)
   | -- | > ELiteral
     -- >   LiteralValue -- value
     ELiteral !LiteralValue
@@ -144,6 +146,27 @@ data LiteralValue
       { _LInstanceFields :: !(IORef (Map ShortByteString LiteralValue))
       , _LInstanceClass :: !(IORef LoxRuntimeClass)
       }
+
+isNumericalOperator :: TokenType -> Maybe (Double -> Double -> LiteralValue)
+isNumericalOperator = \case
+  MINUS -> Just $ \x y -> LNumber (x - y)
+  PLUS -> Just $ \x y -> LNumber (x + y)
+  SLASH -> Just $ \x y -> LNumber (x / y)
+  STAR -> Just $ \x y -> LNumber (x * y)
+  GREATER -> Just $ \x y -> LBool (x > y)
+  GREATER_EQUAL -> Just $ \x y -> LBool (x >= y)
+  LESS -> Just $ \x y -> LBool (x < y)
+  LESS_EQUAL -> Just $ \x y -> LBool (x <= y)
+  _ -> Nothing
+
+literalValueType :: LiteralValue -> String
+literalValueType = \case
+  LNil -> "LNil"
+  LBool _ -> "LBoo"
+  LString _ -> "LString"
+  LNumber n -> "LNumber " <> show n
+  LCallable _ -> "LCallable"
+  LInstance _ _ -> "LInstance"
 
 instance Eq LiteralValue where
   (==) = eqLiteralValue
