@@ -4,3 +4,6 @@
 [submodule "loxlox"]
 	path = loxlox
 	url = https://github.com/mrjameshamilton/loxlox.git
+[submodule "loxlox2"]
+	path = loxlox2
+	url = git@github.com:benhoyt/loxlox.git
