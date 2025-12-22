@@ -144,6 +144,7 @@ benchmark xolsh-bench
     Programs
 
   build-depends:
+    bluefin,
     bytestring,
     process,
     silently,

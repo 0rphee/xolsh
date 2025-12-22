@@ -3,8 +3,11 @@
 
 module Main (main) where
 
+import Bluefin.Eff (runEff)
+import Bluefin.Exception qualified as Exception
+import Bluefin.IO (effIO)
+import Bluefin.Writer (runWriter)
 import Control.Monad (void)
-import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as B
 import Data.Functor ((<&>))
@@ -106,37 +109,40 @@ main = do
 
 benchScanning :: [(String, ByteString)] -> [Benchmark]
 benchScanning proglist =
-  [ bench name $ whnfIO $ runScanning bs
+  [ bench name $ whnfIO $ runScanningIO bs
   | (name, bs) <- proglist
   ]
 
-runScanning :: ByteString -> IO (V.Vector TokenType.Token, Error.ErrorPresent)
-runScanning sourceBS = liftIO $ Scanner.scanTokens sourceBS
+runScanningIO :: ByteString -> IO (V.Vector TokenType.Token, Error.ErrorPresent)
+runScanningIO sourceBS = runEff $ \io -> runWriter $ \w -> Scanner.scanTokens io w sourceBS
 
 benchParsing :: [(String, V.Vector TokenType.Token)] -> [Benchmark]
 benchParsing proglist =
-  [ bench name $ whnfIO $ runParsing bs
+  [ bench name $ whnfIO $ runParsingIO bs
   | (name, bs) <- proglist
   ]
 
-runParsing
-  :: V.Vector TokenType.Token -> IO (Maybe (V.Vector Stmt.Stmt1), Error.ErrorPresent)
-runParsing tokens = liftIO $ Parser.runParse tokens
+runParsingIO
+  :: V.Vector TokenType.Token -> IO (V.Vector Stmt.Stmt1, Error.ErrorPresent)
+runParsingIO tokens = runEff $ \io -> runWriter $ \w -> Parser.runParse io w tokens
 
 interpretStr :: ByteString -> IO ()
-interpretStr sourceBS = do
-  (tokens, err1) <- liftIO $ Scanner.scanTokens sourceBS
-  (maybeStmts, err2) <- liftIO $ Parser.runParse tokens
-  case err1 <> err2 of
-    Error.Error ->
-      fail "Error while scanning or parsing."
-    Error.NoError ->
-      case maybeStmts of
-        Nothing -> fail "Error while scanning or parsing."
-        Just stmts -> do
-          liftIO ((fmap Optimizer.runOptimizer) <$> Resolver.runResolver stmts) >>= \case
-            Nothing -> fail "Error in resolver."
-            Just stmts2 -> do
-              (Silently.silence $ Interpreter.interpret stmts2) >>= \case
-                Error.Error -> fail "Error while interpreting."
-                Error.NoError -> pure ()
+interpretStr sourceBS =
+  ( runEff $ \io -> Exception.try $ \ex ->
+      do
+        (runWriter $ \w -> Scanner.scanTokens io w sourceBS >>= Parser.runParse io w)
+        >>= \case
+          (_, Error.Error) -> Exception.throw ex "Error while scanning or parsing."
+          (stmts, Error.NoError) -> do
+            (runWriter $ \w -> (Resolver.runResolver io w stmts)) >>= \case
+              (_, Error.Error) -> Exception.throw ex "Error in resolver."
+              (stmts', Error.NoError) -> do
+                ( effIO io $ Silently.silence $ runEff $ \io' -> Interpreter.interpret io' (Optimizer.runOptimizer stmts')
+                  )
+                  >>= \case
+                    Error.Error -> Exception.throw ex "Error while interpreting."
+                    Error.NoError -> pure ()
+  )
+    >>= \case
+      Left e -> fail e
+      _ -> pure ()

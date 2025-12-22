@@ -4,6 +4,8 @@
 
 module Programs (lightTests, heavyTests, loxLoxTests, comptimeScanningAction) where
 
+import Bluefin.Eff (runEff)
+import Bluefin.Writer (runWriter)
 import Data.ByteString.Char8 (ByteString)
 import Data.String.Interpolate (iii)
 import Data.Vector qualified as V
@@ -17,7 +19,7 @@ comptimeScanningAction list = traverse f list
   where
     f :: (String, ByteString) -> IO (String, V.Vector TokenType.Token)
     f (str, tokens) =
-      (Scanner.scanTokens tokens) >>= \case
+      (runEff $ \io -> runWriter $ \w -> Scanner.scanTokens io w tokens) >>= \case
         (_, Error.Error) -> fail "error scanning at compile time"
         (v, _) -> pure (str, v)
 
