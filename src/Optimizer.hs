@@ -6,13 +6,11 @@ module Optimizer (runOptimizer) where
 
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Debug.Trace
 import Expr (Expr (..), LiteralValue (..))
 import Expr qualified
 import Stmt (Stmt (..))
 import Stmt qualified
 import TokenType (Token (..))
-import TokenType qualified
 
 runOptimizer
   :: Vector Stmt.Stmt2 -> (Vector Stmt.Stmt2)
@@ -48,9 +46,9 @@ eliminateRedundantStatements s = case s of
 optimizeExpressions :: Stmt.Stmt2 -> Stmt.Stmt2
 optimizeExpressions s = case s of
   SBlock a -> SBlock $ fmap optimizeExpressions a
-  SClass a b c -> s
+  SClass _a _b _c -> s
   SExpression a -> SExpression $ optimizeExpression a
-  SFunction a -> s
+  SFunction _a -> s
   SIf a b c ->
     SIf (optimizeExpression a) (optimizeExpressions b) (fmap optimizeExpressions c)
   SPrint a -> SPrint $ optimizeExpression a

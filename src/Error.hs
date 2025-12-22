@@ -10,8 +10,9 @@ module Error
   )
 where
 
-import Control.Monad.IO.Class (MonadIO (..))
-import Control.Monad.Writer.Class (MonadWriter (tell))
+import Bluefin.Eff
+import Bluefin.IO (IOE, effIO)
+import Bluefin.Writer (Writer, tell)
 import Data.ByteString.Char8 as BS
 import Data.ByteString.Short qualified as SBS
 import {-# SOURCE #-} Expr qualified
@@ -33,42 +34,61 @@ instance Monoid ErrorPresent where
   mempty = NoError
 
 scanError
-  :: (MonadIO m, MonadWriter ErrorPresent m) => Int -> ByteString -> m ()
-scanError line = report line ""
+  :: (io :> es, writer :> es)
+  => IOE io
+  -> Writer ErrorPresent writer
+  -> Int
+  -> ByteString
+  -> Eff es ()
+scanError io w line = report io w line ""
 
 parseError
-  :: (MonadIO m, MonadWriter ErrorPresent m) => Token -> ByteString -> m ()
-parseError token message =
+  :: (io :> es, writer :> es)
+  => IOE io
+  -> Writer ErrorPresent writer
+  -> Token
+  -> ByteString
+  -> Eff es ()
+parseError io w token message =
   if token.ttype == EOF
-    then report token.tline " at end" message
-    else report token.tline (" at '" <> SBS.fromShort token.lexeme <> "'") message
+    then report io w token.tline " at end" message
+    else
+      report io w token.tline (" at '" <> SBS.fromShort token.lexeme <> "'") message
 
 resolverError
-  :: (MonadIO m, MonadWriter ErrorPresent m) => Token -> ByteString -> m ()
+  :: (io :> es, writer :> es)
+  => IOE io
+  -> Writer ErrorPresent writer
+  -> Token
+  -> ByteString
+  -> Eff es ()
 resolverError = parseError
 
 data RuntimeException
   = RuntimeError {token :: !TokenType.Token, message :: !ByteString}
   | RuntimeReturn {value :: !Expr.LiteralValue}
 
-reportRuntimeError :: MonadIO m => RuntimeException -> m ()
-reportRuntimeError rerror =
-  liftIO $
+reportRuntimeError
+  :: io :> es => IOE io -> RuntimeException -> Eff es ()
+reportRuntimeError io rerror =
+  effIO io $
     putStrLnStderr $
       rerror.message <> "\n[line " <> BS.pack (show rerror.token.tline) <> "]"
 
 report
-  :: (MonadIO m, MonadWriter ErrorPresent m)
-  => Int
+  :: (io :> es, writer :> es)
+  => IOE io
+  -> Writer ErrorPresent writer
+  -> Int
   -> ByteString
   -> ByteString
-  -> m ()
-report line whereLocation message = do
+  -> Eff es ()
+report io w line whereLocation message = do
   let er =
         mconcat
           ["[line ", BS.pack $ show line, "] Error", whereLocation, ": ", message]
-  liftIO $ putStrLnStderr er
-  tell Error
+  effIO io $ putStrLnStderr er
+  tell w Error
 
 putStrLnStderr :: ByteString -> IO ()
 putStrLnStderr = BS.hPutStrLn stderr

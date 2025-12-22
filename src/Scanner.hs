@@ -4,12 +4,12 @@
 
 module Scanner (scanTokens, whileM) where
 
+import Bluefin.Eff
+import Bluefin.IO (IOE)
+import Bluefin.State (State)
+import Bluefin.State qualified as State
+import Bluefin.Writer (Writer)
 import Control.Monad (when)
-import Control.Monad.RWS.CPS
-  ( RWST
-  , evalRWST
-  )
-import Control.Monad.State.Class (MonadState (get, put), modify')
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Short qualified as SBS
@@ -29,8 +29,6 @@ data Scanner = Scanner
   , line :: !Int
   }
 
-type ScanM r a = RWST r Error.ErrorPresent Scanner IO a
-
 substring :: ByteString -> Int -> Int -> ByteString
 substring bs start end = BS.take (end - start) (BS.drop start bs)
 
@@ -40,15 +38,40 @@ myIsAlpha c = isAlpha c || c == '_'
 myIsAlphaNum :: Char -> Bool
 myIsAlphaNum c = myIsAlpha c || isDigit c
 
-scanTokens :: ByteString -> IO (Vector TokenType.Token, Error.ErrorPresent)
-scanTokens source = (\act -> evalRWST act () initialScanner) $ do
+scanTokens
+  :: (io :> es, w :> es)
+  => IOE io
+  -> Writer Error.ErrorPresent w
+  -> ByteString
+  -> Eff es (Vector TokenType.Token)
+scanTokens io w source =
+  State.evalState initialScanner $ \st ->
+    scanTokensHelper io st w
+  where
+    initialScanner =
+      Scanner
+        { source = source
+        , tokens = VB.empty
+        , start = 0
+        , current = 0
+        , line = 1
+        }
+
+scanTokensHelper
+  :: forall es io st w
+   . (io :> es, st :> es, w :> es)
+  => IOE io
+  -> State Scanner st
+  -> Writer Error.ErrorPresent w
+  -> Eff es (Vector TokenType.Token)
+scanTokensHelper io st w = do
   whileM
     (not <$> isAtEnd)
     ( do
-        modify' $ \scanner -> scanner {start = scanner.current}
+        State.modify st $ \scanner -> scanner {start = scanner.current}
         scanToken
     )
-  modify' $ \sc ->
+  State.modify st $ \sc ->
     sc
       { tokens =
           sc.tokens
@@ -61,21 +84,13 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
               )
       }
 
-  get <&> (VB.build . (.tokens))
+  State.get st <&> (VB.build . (.tokens))
   where
-    initialScanner =
-      Scanner
-        { source = source
-        , tokens = VB.empty
-        , start = 0
-        , current = 0
-        , line = 1
-        }
-    isAtEnd :: forall r. ScanM r Bool
+    isAtEnd :: Eff es Bool
     isAtEnd = do
-      scanner <- get
+      scanner <- State.get st
       pure $ scanner.current >= BS.length scanner.source
-    scanToken :: forall r. ScanM r ()
+    scanToken :: Eff es ()
     scanToken = do
       c <- advance
       case c of
@@ -117,46 +132,46 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
         ' ' -> pure ()
         '\r' -> pure ()
         '\t' -> pure ()
-        '\n' -> modify' $ \sc -> sc {line = sc.line + 1}
+        '\n' -> State.modify st $ \sc -> sc {line = sc.line + 1}
         '"' -> string
         _ ->
           if
             | isDigit c -> number
             | myIsAlpha c -> identifier
             | otherwise -> do
-                sc <- get
-                Error.scanError sc.line "Unexpected character."
-    advance :: forall r. ScanM r Char
+                sc <- State.get st
+                Error.scanError io w sc.line "Unexpected character."
+    advance :: Eff es Char
     advance = do
-      oldScanner <- get
+      oldScanner <- State.get st
       let newScanner = oldScanner {current = oldScanner.current + 1}
-      put newScanner
+      State.put st newScanner
       pure $ BS.index oldScanner.source oldScanner.current
-    addToken1 :: forall r. TokenType.TokenType -> ScanM r ()
+    addToken1 :: TokenType.TokenType -> Eff es ()
     addToken1 = addToken2
-    addToken2 :: forall r. TokenType.TokenType -> ScanM r ()
-    addToken2 ttype = modify' $ \sc ->
+    addToken2 :: TokenType.TokenType -> Eff es ()
+    addToken2 ttype = State.modify st $ \sc ->
       -- substring
       let text = SBS.toShort $ substring sc.source sc.start sc.current
        in sc {tokens = sc.tokens <> VB.singleton (TokenType.Token ttype text sc.line)}
-    match :: forall r. Char -> ScanM r Bool
+    match :: Char -> Eff es Bool
     match expected = do
       e <- isAtEnd
-      sc <- get
+      sc <- State.get st
       if
         | e -> pure False
         | BS.index sc.source sc.current /= expected -> pure False
         | otherwise -> do
-            put $ sc {current = sc.current + 1}
+            State.put st $ sc {current = sc.current + 1}
             pure True
-    peek :: forall r. ScanM r Char
+    peek :: Eff es Char
     peek = do
       isAtEnd >>= \case
         True -> pure '\0'
         False -> do
-          sc <- get
+          sc <- State.get st
           pure $ BS.index sc.source sc.current
-    string :: forall r. ScanM r ()
+    string :: Eff es ()
     string = do
       whileM
         ( do
@@ -166,21 +181,21 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
         )
         ( do
             c <- peek
-            when ('\n' == c) $ modify' $ \sc -> sc {line = sc.line + 1}
+            when ('\n' == c) $ State.modify st $ \sc -> sc {line = sc.line + 1}
             advance
         )
       e <- isAtEnd
       if e
         then do
-          l <- (.line) <$> get
-          Error.scanError l "Unterminated string."
+          l <- (.line) <$> State.get st
+          Error.scanError io w l "Unterminated string."
           pure ()
         else do
           advance
-          sc <- get
+          sc <- State.get st
           let value = SBS.toShort $ substring sc.source (sc.start + 1) (sc.current - 1)
           addToken2 (TokenType.STRING $ value)
-    number :: forall r. ScanM r ()
+    number :: Eff es ()
     number = do
       whileM
         (isDigit <$> peek)
@@ -191,26 +206,26 @@ scanTokens source = (\act -> evalRWST act () initialScanner) $ do
       when
         (p1 == '.' && isDigit p2)
         (advance {- consume the "." -} >> whileM (isDigit <$> peek) advance)
-      sc <- get
+      sc <- State.get st
       addToken2
         (TokenType.NUMBER $ read . BS.unpack $ substring sc.source sc.start sc.current)
-    peekNext :: forall r. ScanM r Char
+    peekNext :: Eff es Char
     peekNext = do
-      get <&> \sc ->
+      State.get st <&> \sc ->
         if sc.current + 1 >= BS.length sc.source
           then '\0'
           else BS.index sc.source (sc.current + 1)
-    identifier :: forall r. ScanM r ()
+    identifier :: Eff es ()
     identifier = do
       whileM
         (myIsAlphaNum <$> peek)
         advance
-      sc <- get
+      sc <- State.get st
       let tokType = identOrKeywTokTy $ substring sc.source sc.start sc.current
       addToken1 tokType
 
 {-# INLINE whileM #-}
-{-# SPECIALIZE whileM :: ScanM r Bool -> ScanM r Bool -> ScanM r () #-}
+{-# SPECIALIZE whileM :: Eff es Bool -> Eff es Bool -> Eff es () #-}
 whileM :: Monad m => m Bool -> m a -> m ()
 whileM cond act = do
   r <- cond

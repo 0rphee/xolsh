@@ -19,11 +19,16 @@ module Expr
   )
 where
 
+import Bluefin.Eff
+import Bluefin.Exception (Exception)
+import Bluefin.IO (IOE)
+import Bluefin.State (State)
 import Data.ByteString.Short (ShortByteString)
 import Data.IORef (IORef)
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
-import Environment (Environment, InterpreterM)
+import Environment (Environment, InterpreterState)
+import Error qualified
 import Stmt qualified
 import TokenType (Token (..), TokenType (..))
 
@@ -100,15 +105,23 @@ data LoxRuntimeFunction = LRFunction
   , fun_closure :: !Environment -- closure environment
   , fun_isInitializer :: !Bool
   , fun_call
-      :: ( Token -- function token
+      :: forall es io ex st
+       . (io :> es, ex :> es, st :> es)
+      => IOE io
+      -> Exception Error.RuntimeException ex
+      -> State InterpreterState st
+      -> ( IOE io
+           -> Exception Error.RuntimeException ex
+           -> State InterpreterState st
+           -> Token -- function token
            -> Vector Stmt.Stmt2 -- body of lox function
            -> Vector Token -- parameters
            -> Vector LiteralValue -- arguments
            -> Bool -- isInitalizer
-           -> InterpreterM LiteralValue -- this function is ignored when calling native functions
+           -> Eff es LiteralValue -- this function is ignored when calling native functions
          )
       -> Vector LiteralValue -- arguments
-      -> InterpreterM LiteralValue
+      -> Eff es LiteralValue
   }
 
 instance Eq LoxRuntimeFunction where
@@ -124,9 +137,14 @@ data LoxRuntimeClass = LRClass
   , class_methods :: !(IORef (Map ShortByteString LoxRuntimeFunction))
   , class_superclass :: !(Maybe (IORef LoxRuntimeClass))
   , class_call
-      :: IORef LoxRuntimeClass -- reference to itself
+      :: forall (es :: Effects) (io :: Effects) (ex :: Effects) (st :: Effects)
+       . (io :> es, ex :> es, st :> es)
+      => IOE io
+      -> Exception Error.RuntimeException ex
+      -> State InterpreterState st
+      -> IORef LoxRuntimeClass -- reference to itself
       -> Vector LiteralValue -- arguments
-      -> InterpreterM LiteralValue
+      -> Eff es LiteralValue
   }
 
 instance Eq LoxRuntimeClass where

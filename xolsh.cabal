@@ -66,6 +66,7 @@ library
     Optimizer
     Parser
     Resolver
+    Run
     Scanner
     Stmt
     TokenType
@@ -73,12 +74,13 @@ library
   build-depends:
     -- Control.Monad.RWS.CPS available until 2.3.0 (mtl)
     -- Control.Monad.Trans.Except.finallyE available until 0.6.0.0 (transformers)
+    -- mtl >=2.3.1,
+    -- transformers >=0.6.0.0,
+    bluefin,
     bytestring,
     containers,
-    mtl >=2.3.1,
     template-haskell,
     time,
-    transformers >=0.6.0.0,
     vector,
     vector-builder,
 
@@ -103,7 +105,7 @@ executable xolsh-exe
   if flag(memory-profiling)
     ghc-options:
       -finfo-table-map
-      "-with-rtsopts=-N -T -hi -l"
+      -fprof-auto
   hs-source-dirs:
     app
 
@@ -116,8 +118,9 @@ executable xolsh-exe
     RecordWildCards
 
   build-depends:
+    -- mtl,
+    bluefin >=0.2.3 && <1,
     bytestring,
-    mtl,
     optparse-applicative,
     xolsh,
 

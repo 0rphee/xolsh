@@ -3,11 +3,15 @@
 
 module Resolver (runResolver) where
 
+import Bluefin.Eff
+import Bluefin.IO (IOE)
+import Bluefin.State (State, evalState)
+import Bluefin.State qualified as State
+import Bluefin.Writer (Writer)
 import Control.Monad (when)
-import Control.Monad.RWS.CPS (RWST, evalRWST)
-import Control.Monad.State.Class qualified as State
 import Data.ByteString.Short (ShortByteString)
 import Data.Foldable (traverse_)
+import Data.Functor ((<&>))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Maybe (isJust)
@@ -35,210 +39,253 @@ data ResolverState = ResolverState
   , currentClass :: !ClassType
   }
 
-type ResolverM a = RWST () Error.ErrorPresent ResolverState IO a
+-- type ResolverM a = RWST () Error.ErrorPresent ResolverState IO a
 
 runResolver
-  :: Vector Stmt.Stmt1 -> IO (Maybe (Vector Stmt.Stmt2))
-runResolver stmts = do
-  (r, w) <- evalRWST (resolveStmts stmts) () initialResolverState
-  pure $ case w of
-    Error.NoError -> Just r
-    Error.Error -> Nothing
+  :: (io :> es, w :> es)
+  => IOE io
+  -> Writer Error.ErrorPresent w
+  -> Vector Stmt.Stmt1
+  -> Eff es (Vector Stmt.Stmt2)
+runResolver io w stmts =
+  evalState initialResolverState $ \st -> resolveStmts st stmts
   where
     initialResolverState = ResolverState {scopes = [], currentFunction = FTNone, currentClass = CTNone}
-    resolveStmts = traverse resolveStmt
+    resolveStmts st = traverse (resolveStmt io w st)
 
-resolveStmt :: Stmt.Stmt1 -> ResolverM Stmt.Stmt2
-resolveStmt = \case
+resolveStmt
+  :: (io :> es, w :> es, st :> es)
+  => IOE io
+  -> Writer Error.ErrorPresent w
+  -> State ResolverState st
+  -> Stmt.Stmt1
+  -> Eff es Stmt.Stmt2
+resolveStmt io w st = \case
   Stmt.SBlock stmts -> do
-    beginScope
-    newStmts <- traverse resolveStmt stmts
-    endScope
+    beginScope st
+    newStmts <- traverse (resolveStmt io w st) stmts
+    endScope st
     pure $ Stmt.SBlock newStmts
   Stmt.SClass name superclass _methods -> do
-    enclosingClass <- State.gets (.currentClass)
-    State.modify' $ \st -> st {currentClass = CTClass}
-    declare name
-    define name
+    enclosingClass <- State.get st <&> (.currentClass)
+    State.modify st $ \s -> s {currentClass = CTClass}
+    declare io w st name
+    define st name
     nSuperclass <- case superclass of
       Just (superclassTok, ()) -> do
         when (superclassTok.lexeme == name.lexeme) $
-          Error.resolverError superclassTok "A class can't inherit from itself."
-        State.modify' $ \st -> st {currentClass = CTSubclass} -- TODO
-        nSuperClass <- Just . (superclassTok,) <$> resolveVariableName superclassTok
-        beginScope -- start scope for "super"
-        define (TokenType.Token TokenType.SUPER "super" 0) -- TODO remove?
+          Error.resolverError io w superclassTok "A class can't inherit from itself."
+        State.modify st $ \s -> s {currentClass = CTSubclass} -- TODO
+        nSuperClass <-
+          Just . (superclassTok,) <$> resolveVariableName io w st superclassTok
+        beginScope st -- start scope for "super"
+        define st (TokenType.Token TokenType.SUPER "super" 0) -- TODO remove?
         pure nSuperClass
       Nothing -> pure Nothing
 
-    beginScope
+    beginScope st
     newSt <-
-      State.get >>= \oldSt -> do
+      State.get st >>= \oldSt -> do
         newSc <- case oldSt.scopes of
           [] -> do
-            Error.resolverError name "Failure in resolver, bug in interpreter"
+            Error.resolverError io w name "Failure in resolver, bug in interpreter"
             pure []
           (x : xs) -> pure $ M.insert "this" True x : xs
         pure $ oldSt {scopes = newSc}
-    State.put newSt
+    State.put st newSt
 
     nMethods <-
       traverse
         ( \(Stmt.FFunctionH fname params body) -> do
             let funtype = if fname.lexeme == "init" then FTInitializer else FTMethod
-            nBody <- resolveFunction params body funtype
+            nBody <- resolveFunction io w st params body funtype
             pure $ Stmt.FFunctionH fname params nBody
         )
         _methods
-    endScope
+    endScope st
 
-    when (isJust nSuperclass) endScope -- end scope for "super"
-    State.modify' $ \st -> st {currentClass = enclosingClass}
+    when (isJust nSuperclass) (endScope st) -- end scope for "super"
+    State.modify st $ \s -> s {currentClass = enclosingClass}
     pure $ Stmt.SClass name nSuperclass nMethods
   Stmt.SVar name initializer -> do
-    declare name
-    nInitializer <- traverse resolveExpr initializer
-    define name
+    declare io w st name
+    nInitializer <- traverse (resolveExpr io w st) initializer
+    define st name
     pure $ Stmt.SVar name nInitializer
   Stmt.SFunction (Stmt.FFunctionH name params body) -> do
-    declare name >> define name
-    nBody <- resolveFunction params body FTFunction
+    declare io w st name >> define st name
+    nBody <- resolveFunction io w st params body FTFunction
     pure $ Stmt.SFunction $ Stmt.FFunctionH name params nBody
-  Stmt.SExpression expr -> Stmt.SExpression <$> resolveExpr expr
+  Stmt.SExpression expr -> Stmt.SExpression <$> resolveExpr io w st expr
   Stmt.SIf cond thenBody elseBody -> do
-    nCond <- resolveExpr cond
-    nThen <- resolveStmt thenBody
-    nElse <- traverse resolveStmt elseBody
+    nCond <- resolveExpr io w st cond
+    nThen <- resolveStmt io w st thenBody
+    nElse <- traverse (resolveStmt io w st) elseBody
     pure $ Stmt.SIf nCond nThen nElse
-  Stmt.SPrint expr -> Stmt.SPrint <$> resolveExpr expr
+  Stmt.SPrint expr -> Stmt.SPrint <$> resolveExpr io w st expr
   Stmt.SReturn t expr -> do
-    curF <- State.gets (.currentFunction)
+    curF <- State.get st <&> (.currentFunction)
     when (curF == FTNone) $
-      Error.resolverError t "Can't return from top-level code."
+      Error.resolverError io w t "Can't return from top-level code."
     Stmt.SReturn t
       <$> traverse
         ( \e -> do
             when (curF == FTInitializer) $
-              Error.resolverError t "Can't return a value from an initializer."
-            resolveExpr e
+              Error.resolverError io w t "Can't return a value from an initializer."
+            resolveExpr io w st e
         )
         expr
   Stmt.SWhile cond body -> do
-    nCond <- resolveExpr cond
-    nBody <- resolveStmt body
+    nCond <- resolveExpr io w st cond
+    nBody <- resolveStmt io w st body
     pure $ Stmt.SWhile nCond nBody
 
 resolveFunction
-  :: Vector TokenType.Token
+  :: (io :> es, w :> es, st :> es)
+  => IOE io
+  -> Writer Error.ErrorPresent w
+  -> State ResolverState st
+  -> Vector TokenType.Token
   -> Vector Stmt.Stmt1
   -> FunctionType
-  -> ResolverM (Vector Stmt.Stmt2)
-resolveFunction params body funType = do
-  enclosing <- State.gets (.currentFunction)
-  State.modify' $ \st -> st {currentFunction = funType}
-  beginScope
-  traverse_ (\param -> declare param >> define param) params
-  nBody <- traverse resolveStmt body
-  State.modify' $ \st -> st {currentFunction = enclosing}
-  endScope
+  -> Eff es (Vector Stmt.Stmt2)
+resolveFunction io w st params body funType = do
+  enclosing <- State.get st <&> (.currentFunction)
+  State.modify st $ \s -> s {currentFunction = funType}
+  beginScope st
+  traverse_ (\param -> declare io w st param >> define st param) params
+  nBody <- traverse (resolveStmt io w st) body
+  State.modify st $ \s -> s {currentFunction = enclosing}
+  endScope st
   pure nBody
 
-resolveVariableName :: TokenType.Token -> ResolverM Int
-resolveVariableName name = do
-  State.gets (.scopes) >>= \case
+resolveVariableName
+  :: (io :> es, w :> es, st :> es)
+  => IOE io
+  -> Writer Error.ErrorPresent w
+  -> State ResolverState st
+  -> TokenType.Token
+  -> Eff es Int
+resolveVariableName io w st name = do
+  State.get st <&> (.scopes) >>= \case
     [] -> pure ()
     (closestScope : _) ->
       case closestScope M.!? name.lexeme of
         Just False ->
-          Error.resolverError name "Can't read local variable in its own initializer."
+          Error.resolverError
+            io
+            w
+            name
+            "Can't read local variable in its own initializer."
         _ -> pure ()
-  resolveLocal name.lexeme
+  resolveLocal st name.lexeme
 
-resolveExpr :: Expr.Expr1 -> ResolverM Expr.Expr2
-resolveExpr = \case
+resolveExpr
+  :: (io :> es, w :> es, st :> es)
+  => IOE io
+  -> Writer Error.ErrorPresent w
+  -> State ResolverState st
+  -> Expr.Expr1
+  -> Eff es Expr.Expr2
+resolveExpr io w st = \case
   Expr.EVariable name _ -> do
-    distance <- resolveVariableName name
+    distance <- resolveVariableName io w st name
     pure $ Expr.EVariable name distance
   Expr.EAssign name value _ -> do
-    nValue <- resolveExpr value
-    distance <- resolveLocal name.lexeme
+    nValue <- resolveExpr io w st value
+    distance <- resolveLocal st name.lexeme
     pure $ Expr.EAssign name nValue distance
   Expr.EBinary left t right -> do
-    nL <- resolveExpr left
-    nR <- resolveExpr right
+    nL <- resolveExpr io w st left
+    nR <- resolveExpr io w st right
     pure $ Expr.EBinary nL t nR
   Expr.ECall callee t args -> do
-    nCallee <- resolveExpr callee
-    nArgs <- traverse resolveExpr args
+    nCallee <- resolveExpr io w st callee
+    nArgs <- traverse (resolveExpr io w st) args
     pure $ Expr.ECall nCallee t nArgs
   Expr.EGet object name -> do
-    nObject <- resolveExpr object
+    nObject <- resolveExpr io w st object
     pure $ Expr.EGet nObject name
-  Expr.EGrouping expr -> Expr.EGrouping <$> resolveExpr expr
+  Expr.EGrouping expr -> Expr.EGrouping <$> resolveExpr io w st expr
   Expr.ELiteral l -> pure $ Expr.ELiteral l
   Expr.ELogical left t right -> do
-    nL <- resolveExpr left
-    nR <- resolveExpr right
+    nL <- resolveExpr io w st left
+    nR <- resolveExpr io w st right
     pure $ Expr.ELogical nL t nR
   Expr.ESet object name value -> do
-    nValue <- resolveExpr value
-    nObject <- resolveExpr object
+    nValue <- resolveExpr io w st value
+    nObject <- resolveExpr io w st object
     pure $ Expr.ESet nObject name nValue
   Expr.ESuper keyword () mthd -> do
-    State.gets (.currentClass) >>= \case
+    State.get st <&> (.currentClass) >>= \case
       CTNone ->
-        Error.resolverError keyword "Can't use 'super' outside of a class."
+        Error.resolverError io w keyword "Can't use 'super' outside of a class."
       CTClass ->
-        Error.resolverError keyword "Can't use 'super' in a class with no superclass."
+        Error.resolverError
+          io
+          w
+          keyword
+          "Can't use 'super' in a class with no superclass."
       CTSubclass -> pure ()
-    kDist <- resolveLocal keyword.lexeme
+    kDist <- resolveLocal st keyword.lexeme
     pure $ Expr.ESuper keyword kDist mthd -- TODO
   Expr.EThis keyword _ -> do
     distance <-
-      State.gets (.currentClass) >>= \case
+      State.get st <&> (.currentClass) >>= \case
         CTNone -> do
-          Error.resolverError keyword "Can't use 'this' outside of a class."
+          Error.resolverError io w keyword "Can't use 'this' outside of a class."
           pure 0
-        _ -> resolveLocal keyword.lexeme
+        _ -> resolveLocal st keyword.lexeme
     pure $ Expr.EThis keyword distance
-  Expr.EUnary t expr -> Expr.EUnary t <$> resolveExpr expr
+  Expr.EUnary t expr -> Expr.EUnary t <$> resolveExpr io w st expr
 
-beginScope :: ResolverM ()
-beginScope = State.modify' $ \st -> st {scopes = M.empty : st.scopes}
+beginScope
+  :: st :> es
+  => State ResolverState st
+  -> Eff es ()
+beginScope st = State.modify st $ \s -> s {scopes = M.empty : s.scopes}
 
-endScope :: ResolverM ()
-endScope = State.modify $ \st ->
-  let ns = case st.scopes of
+endScope :: st :> es => State ResolverState st -> Eff es ()
+endScope st = State.modify st $ \s ->
+  let ns = case s.scopes of
         [] -> []
         (_ : xs) -> xs
-   in st {scopes = ns}
+   in s {scopes = ns}
 
-declare :: TokenType.Token -> ResolverM ()
-declare name =
-  State.get >>= \st ->
-    case st.scopes of
+declare
+  :: (io :> es, w :> es, st :> es)
+  => IOE io
+  -> Writer Error.ErrorPresent w
+  -> State ResolverState st
+  -> TokenType.Token
+  -> Eff es ()
+declare io w st name =
+  State.get st >>= \s ->
+    case s.scopes of
       [] -> pure ()
       (oldM : xs) ->
         --  M.insert name.lexeme True x : xs
         case M.insertLookupWithKey (\_k _o n -> n) name.lexeme False oldM of
-          (Just _old, _) -> Error.resolverError name "Already a variable with this name in this scope."
-          (Nothing, newM) -> State.put $ st {scopes = newM : xs}
+          (Just _old, _) ->
+            Error.resolverError io w name "Already a variable with this name in this scope."
+          (Nothing, newM) -> State.put st $ s {scopes = newM : xs}
 
-define :: TokenType.Token -> ResolverM ()
-define name =
-  State.modify' $ \st ->
+define :: st :> es => State ResolverState st -> TokenType.Token -> Eff es ()
+define st name =
+  State.modify st $ \s ->
     let newSc =
-          case st.scopes of
+          case s.scopes of
             [] -> []
             (x : xs) -> M.insert name.lexeme True x : xs
-     in st {scopes = newSc}
+     in s {scopes = newSc}
 
-resolveLocal :: ShortByteString -> ResolverM Int
-resolveLocal name = do
-  scopes <- State.gets (.scopes)
+resolveLocal
+  :: st :> es => State ResolverState st -> ShortByteString -> Eff es Int
+resolveLocal st name = do
+  scopes <- State.get st <&> (.scopes)
   go 0 scopes
   where
-    go :: Int -> [Map ShortByteString Bool] -> ResolverM Int
+    go :: Int -> [Map ShortByteString Bool] -> Eff es Int
     go count = \case
       [] -> pure (-1)
       (x : xs) ->
