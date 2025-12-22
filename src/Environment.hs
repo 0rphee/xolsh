@@ -31,18 +31,6 @@ data InterpreterState = InterpreterState
   , environment :: Environment
   }
 
-{- |
-Removing newtypes, @InterpreterM a@ is equivalent to:
-  + @StateT InterpreterState Identitity (Either RuntimeError a)@
-  + @InterpreterState -> Identitity (Either RuntimeError a, InterpreterState)@
--}
-
--- type InterpreterM a =
---   ExceptT Error.RuntimeException (StateT InterpreterState IO) a
-
-----------------------------------
---- module Environment where
-
 data Environment
   = GlobalEnvironment {values :: IORef (Map ShortByteString Expr.LiteralValue)}
   | LocalEnvironment

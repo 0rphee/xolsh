@@ -21,8 +21,8 @@ import System.IO qualified
 
 data GlobalState
   = GlobalState
-  { hadError :: Error.ErrorPresent
-  , hadRuntimeError :: Error.ErrorPresent
+  { hadError :: !Error.ErrorPresent
+  , hadRuntimeError :: !Error.ErrorPresent
   }
 
 run
