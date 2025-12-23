@@ -12,10 +12,12 @@ module Expr
   , Callable (..)
   , eqLiteralValue
   , XEnvDistance
+  , AccessInfo (..)
   , LoxRuntimeFunction (..)
   , LoxRuntimeClass (..)
   , isNumericalOperator
   , literalValueType
+  , XAccessInfo
   )
 where
 
@@ -38,9 +40,17 @@ type Expr1 = Expr PH1
 
 type Expr2 = Expr PH2
 
+data AccessInfo = MkAccessInfo {distance :: !Int, index :: !Int}
+  deriving (Show, Eq)
+
 type family XEnvDistance (phase :: IPhase) where
+  -- later we want to change '()' for Token
   XEnvDistance PH1 = ()
-  XEnvDistance PH2 = Int
+  XEnvDistance PH2 = AccessInfo
+
+type family XAccessInfo (phase :: IPhase) where
+  XAccessInfo PH1 = Token
+  XAccessInfo PH2 = AccessInfo
 
 data Expr (phase :: IPhase)
   = -- | > EAssign
@@ -115,7 +125,7 @@ data LoxRuntimeFunction = LRFunction
            -> State InterpreterState st
            -> Token -- function token
            -> Vector Stmt.Stmt2 -- body of lox function
-           -> Vector Token -- parameters
+           -> Vector AccessInfo -- parameters
            -> Vector LiteralValue -- arguments
            -> Bool -- isInitalizer
            -> Eff es LiteralValue -- this function is ignored when calling native functions
@@ -180,9 +190,9 @@ isNumericalOperator = \case
 literalValueType :: LiteralValue -> String
 literalValueType = \case
   LNil -> "LNil"
-  LBool _ -> "LBoo"
-  LString _ -> "LString"
-  LNumber n -> "LNumber " <> show n
+  LBool v -> "LBool: " <> show v
+  LString v -> "LString: " <> show v
+  LNumber n -> "LNumber: " <> show n
   LCallable _ -> "LCallable"
   LInstance _ _ -> "LInstance"
 

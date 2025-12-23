@@ -2,6 +2,7 @@
 
 module Environment
   ( InterpreterState (..)
+  , ValueMap
   , Environment (..)
   , lookUpVariable
   , assignAt
@@ -17,24 +18,25 @@ import Bluefin.IO (IOE, effIO)
 import Bluefin.State (State)
 import Bluefin.State qualified as State
 import Data.ByteString.Char8 qualified as B
-import Data.ByteString.Short (ShortByteString)
 import Data.ByteString.Short qualified as SBS
 import Data.IORef
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as M
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as M
 import Error qualified
 import {-# SOURCE #-} Expr qualified
 import TokenType qualified
 
+type ValueMap = IntMap Expr.LiteralValue
+
 data InterpreterState = InterpreterState
-  { globals :: IORef (Map ShortByteString Expr.LiteralValue)
+  { globals :: IORef ValueMap
   , environment :: Environment
   }
 
 data Environment
-  = GlobalEnvironment {values :: IORef (Map ShortByteString Expr.LiteralValue)}
+  = GlobalEnvironment {values :: IORef ValueMap}
   | LocalEnvironment
-      { values :: IORef (Map ShortByteString Expr.LiteralValue)
+      { values :: IORef ValueMap
       , _enclosing :: Environment
       }
   deriving (Eq)
@@ -45,17 +47,17 @@ lookUpVariable
   -> Exception Error.RuntimeException ex
   -> State InterpreterState st
   -> TokenType.Token
-  -> Int
+  -> Expr.AccessInfo
   -> Eff es Expr.LiteralValue
-lookUpVariable io ex st name distance =
-  if distance == -1
-    then State.get st >>= \v -> getFromMap io ex name v.globals
-    else State.get st >>= \v -> getAt distance v.environment
+lookUpVariable io ex st name accessInfo =
+  if (accessInfo.distance == (-1))
+    then State.get st >>= \v -> getFromMap io ex name accessInfo.index v.globals
+    else State.get st >>= \v -> getAt accessInfo.distance v.environment
   where
     getAt dist environment =
       case dist of
         0 -> do
-          getFromMap io ex name environment.values
+          getFromMap io ex name accessInfo.index environment.values
         _ ->
           case environment of
             GlobalEnvironment _ -> do
@@ -63,11 +65,11 @@ lookUpVariable io ex st name distance =
               -- getFromMap name _mapref
               Exception.throw ex $
                 Error.RuntimeError
-                  name
+                  name.tline
                   ( "Failure in resolver, bug in interpreter (lookUpVariable)."
                       <> B.pack (show name)
                       <> " "
-                      <> B.pack (show distance)
+                      <> B.pack (show accessInfo)
                       <> "."
                   )
             LocalEnvironment _ enc -> getAt (dist - 1) enc
@@ -77,26 +79,28 @@ assignAt
    . (io :> es, ex :> es)
   => IOE io
   -> Exception Error.RuntimeException ex
-  -> Int
+  -> Expr.AccessInfo
   -> TokenType.Token
   -> Expr.LiteralValue
   -> Environment
   -> Eff es ()
-assignAt io ex dist name value environment = do
-  mapRef <- getAncestor dist environment
-  assignFromMap io ex name value mapRef
+assignAt io ex accessInfo name value environment = do
+  mapRef <- getAncestor accessInfo.distance environment
+  assignFromMap io ex name accessInfo value mapRef
   where
     getAncestor
       :: Int
       -> Environment
-      -> Eff es (IORef (Map ShortByteString Expr.LiteralValue))
+      -> Eff es (IORef ValueMap)
     getAncestor count currEnv =
       if count == 0
         then pure currEnv.values
         else case currEnv of
           GlobalEnvironment _ -> do
             Exception.throw ex $
-              Error.RuntimeError name "Failure in resolver, bug in interpreter (assignAt)."
+              Error.RuntimeError
+                name.tline
+                "Failure in resolver, bug in interpreter (assignAt)."
           LocalEnvironment _ enc -> getAncestor (count - 1) enc
 
 assignFromMap
@@ -104,17 +108,18 @@ assignFromMap
   => IOE io
   -> Exception Error.RuntimeException ex
   -> TokenType.Token
+  -> Expr.AccessInfo
   -> Expr.LiteralValue
-  -> IORef (Map ShortByteString Expr.LiteralValue)
+  -> IORef ValueMap
   -> Eff es ()
-assignFromMap io ex name value mapRef =
+assignFromMap io ex name accessInfo value mapRef =
   effIO io (readIORef mapRef) >>= \vmap ->
-    if M.member name.lexeme vmap
-      then effIO io $ writeIORef mapRef $ M.insert name.lexeme value vmap
+    if M.member accessInfo.index vmap
+      then effIO io $ writeIORef mapRef $ M.insert accessInfo.index value vmap
       else
         Exception.throw ex $
           Error.RuntimeError
-            name
+            name.tline
             ("Undefined variable '" <> (SBS.fromShort name.lexeme) <> "'.")
 
 getFromMap
@@ -122,23 +127,24 @@ getFromMap
   => IOE io
   -> Exception Error.RuntimeException ex
   -> TokenType.Token
-  -> IORef (Map ShortByteString a)
-  -> Eff es a
-getFromMap io ex name ref =
+  -> Int
+  -> IORef ValueMap
+  -> Eff es Expr.LiteralValue
+getFromMap io ex name accessInfoIndex ref =
   effIO io (readIORef ref) >>= \m -> do
-    case m M.!? name.lexeme of
+    case m M.!? accessInfoIndex of
       Just v -> pure v
       Nothing ->
         Exception.throw ex $
           Error.RuntimeError
-            name
+            name.tline
             ("Undefined variable '" <> (SBS.fromShort name.lexeme) <> "'.")
 
 {-# INLINEABLE define #-}
 define
   :: io :> es
-  => IOE io -> ShortByteString -> Expr.LiteralValue -> Environment -> Eff es ()
-define io name value environment = do
-  effIO io $ modifyIORef' environment.values $ \valueMap -> M.insert name value valueMap
+  => IOE io -> Int -> Expr.LiteralValue -> Environment -> Eff es ()
+define io accessIndex value environment = do
+  effIO io $ modifyIORef' environment.values $ \valueMap -> M.insert accessIndex value valueMap
 
 ----------------------------------

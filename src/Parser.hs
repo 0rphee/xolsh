@@ -75,7 +75,7 @@ varDeclaration io w ex st = do
   m <- match st [TokenType.EQUAL]
   initializer <- if m then Just <$> expression io w ex st else pure Nothing
   consume io w ex st TokenType.SEMICOLON "Expect ';' after variable declaration."
-  pure $ Stmt.SVar name initializer
+  pure $ Stmt.SVar name () initializer
 
 {-# INLINE declaration #-}
 declaration
@@ -116,7 +116,7 @@ classDeclaration io w ex st = do
   consume io w ex st TokenType.LEFT_BRACE "Expect '{' before class body.."
   methods <- getMethods VB.empty
   consume io w ex st TokenType.RIGHT_BRACE "Expect '}' after class body."
-  pure $ Stmt.SClass name superclass methods
+  pure $ Stmt.SClass name () superclass methods
   where
     getMethods
       :: VB.Builder Stmt.FunctionH1
@@ -162,7 +162,7 @@ function io w ex st kind = do
   consume io w ex st TokenType.RIGHT_PAREN "Expect ')' after parameters."
   consume io w ex st TokenType.LEFT_BRACE $
     "Expect '{' before " <> kind <> " body."
-  Stmt.FFunctionH name parameters <$> block io w ex st
+  Stmt.FFunctionH name () parameters <$> block io w ex st
   where
     getParams
       :: VB.Builder TokenType.Token

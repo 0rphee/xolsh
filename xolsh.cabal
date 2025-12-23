@@ -79,6 +79,7 @@ library
     bluefin,
     bytestring,
     containers,
+    hashable,
     template-haskell,
     time,
     vector,

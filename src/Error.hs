@@ -65,7 +65,7 @@ resolverError
 resolverError = parseError
 
 data RuntimeException
-  = RuntimeError {token :: !TokenType.Token, message :: !ByteString}
+  = RuntimeError {line :: !Int, message :: !ByteString}
   | RuntimeReturn {value :: !Expr.LiteralValue}
 
 reportRuntimeError
@@ -73,7 +73,7 @@ reportRuntimeError
 reportRuntimeError io rerror =
   effIO io $
     putStrLnStderr $
-      rerror.message <> "\n[line " <> BS.pack (show rerror.token.tline) <> "]"
+      rerror.message <> "\n[line " <> BS.pack (show rerror.line) <> "]"
 
 report
   :: (io :> es, writer :> es)

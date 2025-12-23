@@ -46,14 +46,14 @@ eliminateRedundantStatements s = case s of
 optimizeExpressions :: Stmt.Stmt2 -> Stmt.Stmt2
 optimizeExpressions s = case s of
   SBlock a -> SBlock $ fmap optimizeExpressions a
-  SClass _a _b _c -> s
+  SClass _a _b _c _ -> s
   SExpression a -> SExpression $ optimizeExpression a
   SFunction _a -> s
   SIf a b c ->
     SIf (optimizeExpression a) (optimizeExpressions b) (fmap optimizeExpressions c)
   SPrint a -> SPrint $ optimizeExpression a
   SReturn a b -> SReturn a $ fmap optimizeExpression b
-  SVar a b -> SVar a $ fmap optimizeExpression b
+  SVar a b c -> SVar a b $ fmap optimizeExpression c
   SWhile a b -> SWhile (optimizeExpression a) (optimizeExpressions b)
 
 optimizeExpression :: Expr.Expr2 -> Expr.Expr2

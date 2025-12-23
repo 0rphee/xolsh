@@ -10,8 +10,8 @@ import Bluefin.State qualified as State
 import Bluefin.Writer (Writer)
 import Control.Monad (when)
 import Data.ByteString.Short (ShortByteString)
-import Data.Foldable (traverse_)
 import Data.Functor ((<&>))
+import Data.Hashable qualified as Hashable
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Maybe (isJust)
@@ -19,6 +19,7 @@ import Data.Vector (Vector)
 import Error qualified
 import Expr qualified
 import Stmt qualified
+import TokenType (Token)
 import TokenType qualified
 
 data FunctionType
@@ -33,13 +34,24 @@ data ClassType
   | CTClass
   | CTSubclass
 
+data Scope
+  = MkScope
+  {env :: !(Map ShortByteString NameInfo)}
+
+data NameInfo
+  = MkNameInfo
+  { isDefined :: !Bool
+  -- ^ does the name have a definition, or has only been declared?
+  , index :: !Int
+  -- ^ index of the name (hash)
+  }
+  deriving (Show)
+
 data ResolverState = ResolverState
-  { scopes :: ![Map ShortByteString Bool]
+  { scopes :: ![Scope]
   , currentFunction :: !FunctionType
   , currentClass :: !ClassType
   }
-
--- type ResolverM a = RWST () Error.ErrorPresent ResolverState IO a
 
 runResolver
   :: (io :> es, w :> es)
@@ -66,56 +78,55 @@ resolveStmt io w st = \case
     newStmts <- traverse (resolveStmt io w st) stmts
     endScope st
     pure $ Stmt.SBlock newStmts
-  Stmt.SClass name superclass _methods -> do
+  Stmt.SClass className _accessInfo superclass _methods -> do
     enclosingClass <- State.get st <&> (.currentClass)
     State.modify st $ \s -> s {currentClass = CTClass}
-    declare io w st name
-    define st name
+    declare io w st className
+    classAccessInfo <- define st className
     nSuperclass <- case superclass of
       Just (superclassTok, ()) -> do
-        when (superclassTok.lexeme == name.lexeme) $
+        when (superclassTok.lexeme == className.lexeme) $
           Error.resolverError io w superclassTok "A class can't inherit from itself."
         State.modify st $ \s -> s {currentClass = CTSubclass} -- TODO
         nSuperClass <-
           Just . (superclassTok,) <$> resolveVariableName io w st superclassTok
         beginScope st -- start scope for "super"
-        define st (TokenType.Token TokenType.SUPER "super" 0) -- TODO remove?
+        define
+          st
+          (className {TokenType.ttype = TokenType.SUPER, TokenType.lexeme = "super"})
         pure nSuperClass
       Nothing -> pure Nothing
 
     beginScope st
-    newSt <-
-      State.get st >>= \oldSt -> do
-        newSc <- case oldSt.scopes of
-          [] -> do
-            Error.resolverError io w name "Failure in resolver, bug in interpreter"
-            pure []
-          (x : xs) -> pure $ M.insert "this" True x : xs
-        pure $ oldSt {scopes = newSc}
-    State.put st newSt
+    thisKeywordAccessInfo <-
+      define
+        st
+        (className {TokenType.ttype = TokenType.THIS, TokenType.lexeme = "this"})
 
     nMethods <-
       traverse
-        ( \(Stmt.FFunctionH fname params body) -> do
+        ( \(Stmt.FFunctionH fname _accessInfo params body) -> do
             let funtype = if fname.lexeme == "init" then FTInitializer else FTMethod
-            nBody <- resolveFunction io w st params body funtype
-            pure $ Stmt.FFunctionH fname params nBody
+            (nBody, paramsAccessInfo) <- resolveFunction io w st params body funtype
+            methodAccessInfo <-
+              define st $ fname {TokenType.lexeme = fname.lexeme}
+            pure $ Stmt.FFunctionH fname methodAccessInfo paramsAccessInfo nBody
         )
         _methods
     endScope st
 
     when (isJust nSuperclass) (endScope st) -- end scope for "super"
     State.modify st $ \s -> s {currentClass = enclosingClass}
-    pure $ Stmt.SClass name nSuperclass nMethods
-  Stmt.SVar name initializer -> do
+    pure $ Stmt.SClass className classAccessInfo nSuperclass nMethods
+  Stmt.SVar name _accessInfo initializer -> do
     declare io w st name
     nInitializer <- traverse (resolveExpr io w st) initializer
-    define st name
-    pure $ Stmt.SVar name nInitializer
-  Stmt.SFunction (Stmt.FFunctionH name params body) -> do
-    declare io w st name >> define st name
-    nBody <- resolveFunction io w st params body FTFunction
-    pure $ Stmt.SFunction $ Stmt.FFunctionH name params nBody
+    accessInfo <- define st name
+    pure $ Stmt.SVar name accessInfo nInitializer
+  Stmt.SFunction (Stmt.FFunctionH name _accessInfo params body) -> do
+    accessInfo <- declare io w st name >> define st name
+    (nBody, paramAccessInfo) <- resolveFunction io w st params body FTFunction
+    pure $ Stmt.SFunction $ Stmt.FFunctionH name accessInfo paramAccessInfo nBody
   Stmt.SExpression expr -> Stmt.SExpression <$> resolveExpr io w st expr
   Stmt.SIf cond thenBody elseBody -> do
     nCond <- resolveExpr io w st cond
@@ -148,16 +159,17 @@ resolveFunction
   -> Vector TokenType.Token
   -> Vector Stmt.Stmt1
   -> FunctionType
-  -> Eff es (Vector Stmt.Stmt2)
+  -> Eff es (Vector Stmt.Stmt2, Vector Expr.AccessInfo)
 resolveFunction io w st params body funType = do
   enclosing <- State.get st <&> (.currentFunction)
   State.modify st $ \s -> s {currentFunction = funType}
   beginScope st
-  traverse_ (\param -> declare io w st param >> define st param) params
+  resolvedParams <-
+    traverse (\param -> declare io w st param >> define st param) params
   nBody <- traverse (resolveStmt io w st) body
   State.modify st $ \s -> s {currentFunction = enclosing}
   endScope st
-  pure nBody
+  pure (nBody, resolvedParams)
 
 resolveVariableName
   :: (io :> es, w :> es, st :> es)
@@ -165,13 +177,13 @@ resolveVariableName
   -> Writer Error.ErrorPresent w
   -> State ResolverState st
   -> TokenType.Token
-  -> Eff es Int
+  -> Eff es Expr.AccessInfo
 resolveVariableName io w st name = do
   State.get st <&> (.scopes) >>= \case
     [] -> pure ()
     (closestScope : _) ->
-      case closestScope M.!? name.lexeme of
-        Just False ->
+      case closestScope.env M.!? name.lexeme of
+        Just (MkNameInfo False _) ->
           Error.resolverError
             io
             w
@@ -234,7 +246,7 @@ resolveExpr io w st = \case
       State.get st <&> (.currentClass) >>= \case
         CTNone -> do
           Error.resolverError io w keyword "Can't use 'this' outside of a class."
-          pure 0
+          pure $ Expr.MkAccessInfo 0 0
         _ -> resolveLocal st keyword.lexeme
     pure $ Expr.EThis keyword distance
   Expr.EUnary t expr -> Expr.EUnary t <$> resolveExpr io w st expr
@@ -243,7 +255,7 @@ beginScope
   :: st :> es
   => State ResolverState st
   -> Eff es ()
-beginScope st = State.modify st $ \s -> s {scopes = M.empty : s.scopes}
+beginScope st = State.modify st $ \s -> s {scopes = MkScope M.empty : s.scopes}
 
 endScope :: st :> es => State ResolverState st -> Eff es ()
 endScope st = State.modify st $ \s ->
@@ -262,33 +274,85 @@ declare
 declare io w st name =
   State.get st >>= \s ->
     case s.scopes of
-      [] -> pure ()
-      (oldM : xs) ->
-        --  M.insert name.lexeme True x : xs
-        case M.insertLookupWithKey (\_k _o n -> n) name.lexeme False oldM of
+      [] ->
+        -- Error.resolverError
+        --   io
+        --   w
+        --   name
+        --   "The impossible happened: no scopes available for 'declare'."
+        pure ()
+      (oldSc : xs) ->
+        case M.insertLookupWithKey
+          (\_k _o n -> n)
+          name.lexeme
+          (MkNameInfo False (Hashable.hash name.lexeme))
+          oldSc.env of
           (Just _old, _) ->
             Error.resolverError io w name "Already a variable with this name in this scope."
-          (Nothing, newM) -> State.put st $ s {scopes = newM : xs}
+          (Nothing, newM) ->
+            State.put st $
+              s
+                { scopes =
+                    oldSc
+                      { env = (newM)
+                      }
+                      : xs
+                }
 
-define :: st :> es => State ResolverState st -> TokenType.Token -> Eff es ()
-define st name =
-  State.modify st $ \s ->
-    let newSc =
-          case s.scopes of
-            [] -> []
-            (x : xs) -> M.insert name.lexeme True x : xs
-     in s {scopes = newSc}
+define
+  :: st :> es
+  => State ResolverState st
+  -> TokenType.Token
+  -> Eff es Expr.AccessInfo
+define st name = do
+  s <- State.get st
+  (newScopes, accessInfo) <-
+    case s.scopes of
+      [] -> do
+        -- Error.resolverError
+        --   io
+        --   w
+        --   name
+        --   "The impossible happened: no scopes available for 'define'."
+        pure $
+          ( []
+          , Expr.MkAccessInfo {Expr.index = Hashable.hash name.lexeme, Expr.distance = -1}
+          )
+      (oldSc : xs) ->
+        let hashed = Hashable.hash name.lexeme
+         in case M.insertLookupWithKey
+              (\_k oldV _newV -> oldV {isDefined = True})
+              name.lexeme
+              (MkNameInfo {isDefined = True, index = hashed})
+              oldSc.env of
+              (Just _old, newM) -> do
+                -- Just: se encontró name.lexeme, solo se añade que esté definida
+                pure $
+                  ( oldSc {env = newM} : xs
+                  , Expr.MkAccessInfo {Expr.index = _old.index, Expr.distance = 0}
+                  )
+              (Nothing, newM) ->
+                -- Nothing: no se encontró name.lexeme, se inserta completamente de cero
+                pure $
+                  ( oldSc {env = newM}
+                      : xs
+                  , Expr.MkAccessInfo {Expr.index = hashed, Expr.distance = 0}
+                  )
+  State.put st $ s {scopes = newScopes}
+  pure $ (accessInfo)
 
 resolveLocal
-  :: st :> es => State ResolverState st -> ShortByteString -> Eff es Int
+  :: st :> es => State ResolverState st -> ShortByteString -> Eff es Expr.AccessInfo
 resolveLocal st name = do
   scopes <- State.get st <&> (.scopes)
   go 0 scopes
   where
-    go :: Int -> [Map ShortByteString Bool] -> Eff es Int
+    go :: Int -> [Scope] -> Eff es Expr.AccessInfo
     go count = \case
-      [] -> pure (-1)
+      [] -> pure $ Expr.MkAccessInfo (-1) (Hashable.hash name)
       (x : xs) ->
-        if M.member name x
-          then pure count
-          else go (count + 1) xs
+        case M.lookup name x.env of
+          Just nameInfo ->
+            pure $ Expr.MkAccessInfo count nameInfo.index
+          Nothing ->
+            go (count + 1) xs

@@ -21,6 +21,7 @@ data Stmt (phase :: Expr.IPhase)
     -- >   Vector (FunctionH phase) -- methods
     SClass
       !TokenType.Token
+      !(Expr.XEnvDistance phase)
       !(Maybe (TokenType.Token, Expr.XEnvDistance phase))
       !(Vector (FunctionH phase))
   | -- | > SExpression
@@ -44,7 +45,7 @@ data Stmt (phase :: Expr.IPhase)
   | -- | > SVar
     -- >   Token -- name
     -- >   Maybe (Expr phase) -- initializer
-    SVar !TokenType.Token !(Maybe (Expr.Expr phase))
+    SVar !TokenType.Token (Expr.XEnvDistance phase) !(Maybe (Expr.Expr phase))
   | -- | > SWhile
     -- >   Expr phase -- condition
     -- >   (Stmt phase) -- body
@@ -59,16 +60,20 @@ data FunctionH (phase :: Expr.IPhase)
     -- >   Token          -- name
     -- >   (Vector Token) -- params
     -- >   (Vector (Stmt phase))  -- body
-    FFunctionH !TokenType.Token !(Vector TokenType.Token) !(Vector (Stmt phase))
+    FFunctionH
+      !TokenType.Token
+      !(Expr.XEnvDistance phase)
+      !(Vector (Expr.XAccessInfo phase))
+      !(Vector (Stmt phase))
 
 getType :: Stmt a -> String
 getType = \case
   SBlock _ -> "SBlock"
-  SClass _ _ _ -> "SClass"
-  SExpression _ -> "SExpression"
+  SClass t _ _ _ -> "SClass: ," <> show t
+  SExpression _ -> "SExpression: "
   SFunction _ -> "SFunction"
   SIf _ _ _ -> "SIf"
   SPrint _ -> "SPrint"
   SReturn _ _ -> "SReturn"
-  SVar _ _ -> "SVar"
+  SVar _ _ _ -> "SVar"
   SWhile _ _ -> "SWhile"
