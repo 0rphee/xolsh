@@ -98,7 +98,7 @@ resolveStmt io w st = \case
       Nothing -> pure Nothing
 
     beginScope st
-    thisKeywordAccessInfo <-
+    _thisKeywordAccessInfo <-
       define
         st
         (className {TokenType.ttype = TokenType.THIS, TokenType.lexeme = "this"})
@@ -108,8 +108,7 @@ resolveStmt io w st = \case
         ( \(Stmt.FFunctionH fname _accessInfo params body) -> do
             let funtype = if fname.lexeme == "init" then FTInitializer else FTMethod
             (nBody, paramsAccessInfo) <- resolveFunction io w st params body funtype
-            methodAccessInfo <-
-              define st $ fname {TokenType.lexeme = fname.lexeme}
+            methodAccessInfo <- define st fname
             pure $ Stmt.FFunctionH fname methodAccessInfo paramsAccessInfo nBody
         )
         _methods
@@ -118,11 +117,11 @@ resolveStmt io w st = \case
     when (isJust nSuperclass) (endScope st) -- end scope for "super"
     State.modify st $ \s -> s {currentClass = enclosingClass}
     pure $ Stmt.SClass className classAccessInfo nSuperclass nMethods
-  Stmt.SVar name _accessInfo initializer -> do
+  Stmt.SVar name initializer -> do
     declare io w st name
     nInitializer <- traverse (resolveExpr io w st) initializer
     accessInfo <- define st name
-    pure $ Stmt.SVar name accessInfo nInitializer
+    pure $ Stmt.SVar accessInfo nInitializer
   Stmt.SFunction (Stmt.FFunctionH name _accessInfo params body) -> do
     accessInfo <- declare io w st name >> define st name
     (nBody, paramAccessInfo) <- resolveFunction io w st params body FTFunction
@@ -138,7 +137,7 @@ resolveStmt io w st = \case
     curF <- State.get st <&> (.currentFunction)
     when (curF == FTNone) $
       Error.resolverError io w t "Can't return from top-level code."
-    Stmt.SReturn t
+    Stmt.SReturn ()
       <$> traverse
         ( \e -> do
             when (curF == FTInitializer) $
@@ -214,11 +213,11 @@ resolveExpr io w st = \case
   Expr.ECall callee t args -> do
     nCallee <- resolveExpr io w st callee
     nArgs <- traverse (resolveExpr io w st) args
-    pure $ Expr.ECall nCallee t nArgs
+    pure $ Expr.ECall nCallee t.tline nArgs
   Expr.EGet object name -> do
     nObject <- resolveExpr io w st object
     pure $ Expr.EGet nObject name
-  Expr.EGrouping expr -> Expr.EGrouping <$> resolveExpr io w st expr
+  Expr.EGrouping expr -> resolveExpr io w st expr
   Expr.ELiteral l -> pure $ Expr.ELiteral l
   Expr.ELogical left t right -> do
     nL <- resolveExpr io w st left
@@ -274,13 +273,7 @@ declare
 declare io w st name =
   State.get st >>= \s ->
     case s.scopes of
-      [] ->
-        -- Error.resolverError
-        --   io
-        --   w
-        --   name
-        --   "The impossible happened: no scopes available for 'declare'."
-        pure ()
+      [] -> pure ()
       (oldSc : xs) ->
         case M.insertLookupWithKey
           (\_k _o n -> n)
@@ -291,13 +284,7 @@ declare io w st name =
             Error.resolverError io w name "Already a variable with this name in this scope."
           (Nothing, newM) ->
             State.put st $
-              s
-                { scopes =
-                    oldSc
-                      { env = (newM)
-                      }
-                      : xs
-                }
+              s {scopes = oldSc {env = (newM)} : xs}
 
 define
   :: st :> es
@@ -306,38 +293,30 @@ define
   -> Eff es Expr.AccessInfo
 define st name = do
   s <- State.get st
-  (newScopes, accessInfo) <-
-    case s.scopes of
-      [] -> do
-        -- Error.resolverError
-        --   io
-        --   w
-        --   name
-        --   "The impossible happened: no scopes available for 'define'."
-        pure $
-          ( []
-          , Expr.MkAccessInfo {Expr.index = Hashable.hash name.lexeme, Expr.distance = -1}
-          )
-      (oldSc : xs) ->
-        let hashed = Hashable.hash name.lexeme
-         in case M.insertLookupWithKey
-              (\_k oldV _newV -> oldV {isDefined = True})
-              name.lexeme
-              (MkNameInfo {isDefined = True, index = hashed})
-              oldSc.env of
-              (Just _old, newM) -> do
-                -- Just: se encontró name.lexeme, solo se añade que esté definida
-                pure $
-                  ( oldSc {env = newM} : xs
-                  , Expr.MkAccessInfo {Expr.index = _old.index, Expr.distance = 0}
-                  )
-              (Nothing, newM) ->
-                -- Nothing: no se encontró name.lexeme, se inserta completamente de cero
-                pure $
-                  ( oldSc {env = newM}
-                      : xs
-                  , Expr.MkAccessInfo {Expr.index = hashed, Expr.distance = 0}
-                  )
+  let (newScopes, accessInfo) =
+        case s.scopes of
+          [] ->
+            ( []
+            , Expr.MkAccessInfo {Expr.index = Hashable.hash name.lexeme, Expr.distance = -1}
+            )
+          (oldSc : xs) ->
+            let hashed = Hashable.hash name.lexeme
+             in case M.insertLookupWithKey
+                  (\_k oldV _newV -> oldV {isDefined = True})
+                  name.lexeme
+                  (MkNameInfo {isDefined = True, index = hashed})
+                  oldSc.env of
+                  (Just _old, newM) ->
+                    -- Just: se encontró name.lexeme, solo se añade que esté definida
+                    ( oldSc {env = newM} : xs
+                    , Expr.MkAccessInfo {Expr.index = _old.index, Expr.distance = 0}
+                    )
+                  (Nothing, newM) ->
+                    -- Nothing: no se encontró name.lexeme, se inserta completamente de cero
+                    ( oldSc {env = newM}
+                        : xs
+                    , Expr.MkAccessInfo {Expr.index = hashed, Expr.distance = 0}
+                    )
   State.put st $ s {scopes = newScopes}
   pure $ (accessInfo)
 

@@ -53,7 +53,7 @@ optimizeExpressions s = case s of
     SIf (optimizeExpression a) (optimizeExpressions b) (fmap optimizeExpressions c)
   SPrint a -> SPrint $ optimizeExpression a
   SReturn a b -> SReturn a $ fmap optimizeExpression b
-  SVar a b c -> SVar a b $ fmap optimizeExpression c
+  SVar a b -> SVar a $ fmap optimizeExpression b
   SWhile a b -> SWhile (optimizeExpression a) (optimizeExpressions b)
 
 optimizeExpression :: Expr.Expr2 -> Expr.Expr2
@@ -65,7 +65,6 @@ computeConstantExpressions e = case e of
   EBinary l t r -> handleBin l t r
   ECall a t c -> ECall a t (fmap computeConstantExpressions c)
   EGet a t -> EGet a t
-  EGrouping a -> computeConstantExpressions a
   ELiteral _ -> e
   ELogical l t r -> handleBin l t r
   ESet l t a -> ESet l t (computeConstantExpressions a)

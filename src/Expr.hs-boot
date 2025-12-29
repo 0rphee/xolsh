@@ -11,6 +11,7 @@ module Expr
   , AccessInfo (..)
   , XAccessInfo
   , literalValueType
+  , XToken
   )
 where
 
@@ -37,6 +38,10 @@ type family XEnvDistance (phase :: IPhase) where
 type family XAccessInfo (phase :: IPhase) where
   XAccessInfo PH1 = TokenType.Token
   XAccessInfo PH2 = AccessInfo
+
+type family XToken (phase :: IPhase) where
+  XToken PH1 = TokenType.Token
+  XToken PH2 = ()
 
 data Callable
 

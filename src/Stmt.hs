@@ -41,11 +41,11 @@ data Stmt (phase :: Expr.IPhase)
   | -- | > SReturn
     -- >   TokenType.Token   -- keyword
     -- >   (Maybe Expr.Expr phase) -- value
-    SReturn !TokenType.Token !(Maybe (Expr.Expr phase))
+    SReturn !(Expr.XToken phase) !(Maybe (Expr.Expr phase))
   | -- | > SVar
     -- >   Token -- name
     -- >   Maybe (Expr phase) -- initializer
-    SVar !TokenType.Token (Expr.XEnvDistance phase) !(Maybe (Expr.Expr phase))
+    SVar !(Expr.XAccessInfo phase) !(Maybe (Expr.Expr phase))
   | -- | > SWhile
     -- >   Expr phase -- condition
     -- >   (Stmt phase) -- body
@@ -75,5 +75,5 @@ getType = \case
   SIf _ _ _ -> "SIf"
   SPrint _ -> "SPrint"
   SReturn _ _ -> "SReturn"
-  SVar _ _ _ -> "SVar"
+  SVar _ _ -> "SVar"
   SWhile _ _ -> "SWhile"

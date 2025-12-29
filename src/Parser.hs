@@ -75,7 +75,7 @@ varDeclaration io w ex st = do
   m <- match st [TokenType.EQUAL]
   initializer <- if m then Just <$> expression io w ex st else pure Nothing
   consume io w ex st TokenType.SEMICOLON "Expect ';' after variable declaration."
-  pure $ Stmt.SVar name () initializer
+  pure $ Stmt.SVar name initializer
 
 {-# INLINE declaration #-}
 declaration

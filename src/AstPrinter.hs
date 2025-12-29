@@ -7,10 +7,10 @@ import Data.ByteString.Builder qualified as BS
 import Data.ByteString.Char8 (ByteString)
 import Data.ByteString.Char8 qualified as BS
 import Data.Foldable (foldl')
-import Expr (Expr (..), LiteralValue (..))
+import Expr (Expr (..), Expr1, LiteralValue (..))
 import TokenType (Token (..))
 
-printAst :: Expr a -> ByteString
+printAst :: Expr1 -> ByteString
 printAst = BS.toStrict . BS.toLazyByteString . go
   where
     go = \case

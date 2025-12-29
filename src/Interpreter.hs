@@ -103,7 +103,6 @@ evaluate io ex st = \case
               "Error in interpreter, bug while looking up 'this' for a 'super' call."
   Expr.EThis keyword distance -> do
     lookUpVariable io ex st keyword distance
-  Expr.EGrouping expr -> evaluate io ex st expr
   Expr.EUnary op expr -> do
     right <- evaluate io ex st expr
     case (op.ttype, right) of
@@ -137,7 +136,7 @@ evaluate io ex st = \case
         TokenType.SLASH -> Expr.LNumber <$> commonIfNumber (/)
         TokenType.STAR -> Expr.LNumber <$> commonIfNumber (*)
         _ -> pure Expr.LNil -- marked as unreachable (section 7.2.5)
-  Expr.ECall callee paren argumentsExprs -> do
+  Expr.ECall callee parenLine argumentsExprs -> do
     calleeVal <- evaluate io ex st callee
     argVals <- traverse (evaluate io ex st) argumentsExprs
     case calleeVal of
@@ -159,7 +158,7 @@ evaluate io ex st = \case
         when (callable_arity /= V.length argumentsExprs) $
           Exception.throw ex $
             Error.RuntimeError
-              paren.tline
+              parenLine
               ( "Expected "
                   <> BS.pack (show callable_arity)
                   <> " arguments but got "
@@ -169,7 +168,7 @@ evaluate io ex st = \case
         callable_call
       _ ->
         Exception.throw ex $
-          Error.RuntimeError paren.tline "Can only call functions and classes."
+          Error.RuntimeError parenLine "Can only call functions and classes."
   Expr.EGet object fieldName -> do
     evaluate io ex st object >>= \case
       Expr.LInstance fields methods -> getInstanceFieldOrMethod io ex fieldName fields methods
@@ -289,7 +288,7 @@ execute io ex st = \case
   Stmt.SReturn _ valueExpr -> do
     value <- fromMaybe Expr.LNil <$> traverse (evaluate io ex st) valueExpr
     Exception.throw ex $ Error.RuntimeReturn value
-  Stmt.SVar name accessInfo initializer -> do
+  Stmt.SVar accessInfo initializer -> do
     value <- case initializer of
       Nothing -> pure Expr.LNil
       Just v -> evaluate io ex st v

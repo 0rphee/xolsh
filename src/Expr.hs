@@ -12,12 +12,14 @@ module Expr
   , Callable (..)
   , eqLiteralValue
   , XEnvDistance
+  , XAccessInfo
+  , XToken
+  , XEGrouping
   , AccessInfo (..)
   , LoxRuntimeFunction (..)
   , LoxRuntimeClass (..)
   , isNumericalOperator
   , literalValueType
-  , XAccessInfo
   )
 where
 
@@ -29,6 +31,7 @@ import Data.ByteString.Short (ShortByteString)
 import Data.IORef (IORef)
 import Data.Map.Strict (Map)
 import Data.Vector (Vector)
+import Data.Void (Void)
 import Environment (Environment, InterpreterState)
 import Error qualified
 import Stmt qualified
@@ -52,6 +55,18 @@ type family XAccessInfo (phase :: IPhase) where
   XAccessInfo PH1 = Token
   XAccessInfo PH2 = AccessInfo
 
+type family XToken (phase :: IPhase) where
+  XToken PH1 = Token
+  XToken PH2 = ()
+
+type family XCallToken (phase :: IPhase) where
+  XCallToken PH1 = Token
+  XCallToken PH2 = Int
+
+type family XEGrouping (phase :: IPhase) where
+  XEGrouping PH1 = Expr PH1
+  XEGrouping PH2 = Void
+
 data Expr (phase :: IPhase)
   = -- | > EAssign
     -- >   Token -- name
@@ -66,14 +81,14 @@ data Expr (phase :: IPhase)
     -- >   (Expr phase)  -- callee
     -- >   Token  -- paren
     -- >   [(Expr phase)] -- arguments
-    ECall !(Expr phase) !Token !(Vector (Expr phase))
+    ECall !(Expr phase) !(XCallToken phase) !(Vector (Expr phase))
   | -- | > EGet
     -- >   Expr phase -- object
     -- >   Token -- name
     EGet !(Expr phase) !Token
   | -- | > EGrouping
     -- >   (Expr phase)-- expression
-    EGrouping !(Expr phase)
+    EGrouping !(XEGrouping phase)
   | -- | > ELiteral
     -- >   LiteralValue -- value
     ELiteral !LiteralValue
