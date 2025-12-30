@@ -438,22 +438,22 @@ call
   -> Eff es Expr.LiteralValue
 call io ex st isTailCall closure funToken body params args isInitializer = do
   -- environment of the function before being called
+  let withCleanFunctionValueMap :: (ValueMap -> r) -> r
+      withCleanFunctionValueMap f =
+        V.zipWith (\accessInfo -> (accessInfo.index,)) params args
+          & V.toList
+          & IM.fromList
+          & f
   prevEnv <- State.get st <&> (.environment)
-  -- local environment of the function with arguments paired with parameters
-  funcEnvironment <- do
-    let envToUse = \newIM ->
-          effIO io $
-            if isTailCall
-              then writeIORef prevEnv.values newIM >> pure prevEnv
-              else newIORef newIM <&> (`LocalEnvironment` closure)
-    V.zipWith (\accessInfo -> (accessInfo.index,)) params args
-      & V.toList
-      & IM.fromList
-      & envToUse
-  -- if the function does not return via a return stmt, it will default to nil
-  -- TODO: if isTailCall we do not need to executeWithinEnvs
-  executeWithinEnvs ex st (\e -> within io e st) prevEnv funcEnvironment
+  if isTailCall
+    then do
+      withCleanFunctionValueMap $ \newIM -> effIO io $ writeIORef prevEnv.values newIM
+      within io ex st
+    else do
+      funcEnvironment <- withCleanFunctionValueMap $ \newIM -> effIO io $ newIORef newIM <&> (`LocalEnvironment` closure)
+      executeWithinEnvs ex st (\e -> within io e st) prevEnv funcEnvironment
   where
+    -- if the function does not return via a return stmt, it will default to nil
     within io' ex' st' = do
       Exception.try (\e -> executeStmts io' e st' body) >>= \case
         Left e ->
