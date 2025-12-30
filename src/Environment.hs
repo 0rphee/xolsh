@@ -50,7 +50,7 @@ lookUpVariable
   -> Expr.AccessInfo
   -> Eff es Expr.LiteralValue
 lookUpVariable io ex st name accessInfo =
-  if (accessInfo.distance == (-1))
+  if accessInfo.distance == (-1)
     then State.get st >>= \v -> getFromMap io ex name accessInfo.index v.globals
     else State.get st >>= \v -> getAt accessInfo.distance v.environment
   where

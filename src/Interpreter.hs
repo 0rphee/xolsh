@@ -82,7 +82,11 @@ evaluate io ex st = \case
       ex
       st
       (TokenType.Token TokenType.THIS "this" keyword.tline)
-      (accessInfo {Expr.distance = thisHash})
+      ( Expr.MkAccessInfo
+          { Expr.distance = accessInfo.distance - 1
+          , Expr.index = thisHash
+          }
+      )
       >>= \case
         Expr.LInstance fields thisInstanceClass -> do
           checkMethodChain io methdName.lexeme superclass >>= \case

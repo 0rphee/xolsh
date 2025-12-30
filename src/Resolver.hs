@@ -251,7 +251,8 @@ resolveExpr io w st = \case
       State.get st <&> (.currentClass) >>= \case
         CTNone -> do
           Error.resolverError io w keyword "Can't use 'this' outside of a class."
-          pure $ Expr.MkAccessInfo 0 0
+          -- actual MkAccessInfo values don't matter, the resolver error prevents execution
+          pure $ Expr.MkAccessInfo {Expr.distance = 0, Expr.index = 0}
         _ -> resolveLocal st keyword.lexeme
     pure $ Expr.EThis keyword distance
   Expr.EUnary t expr -> Expr.EUnary t <$> resolveExpr io w st expr
@@ -334,10 +335,12 @@ resolveLocal st name = do
   where
     go :: Int -> [Scope] -> Eff es Expr.AccessInfo
     go count = \case
-      [] -> pure $ Expr.MkAccessInfo (-1) (Hashable.hash name)
+      [] ->
+        pure $
+          Expr.MkAccessInfo {Expr.distance = (-1), Expr.index = (Hashable.hash name)}
       (x : xs) ->
         case M.lookup name x.env of
           Just nameInfo ->
-            pure $ Expr.MkAccessInfo count nameInfo.index
+            pure $ Expr.MkAccessInfo {Expr.distance = count, Expr.index = nameInfo.index}
           Nothing ->
             go (count + 1) xs

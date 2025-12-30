@@ -170,7 +170,7 @@ function io w ex st kind = do
     getParams accum = do
       when (VB.size accum >= 255) $ do
         peek st >>= \tok ->
-          void $ getAndReportParserError io w tok "Cant have more than 255 parameters."
+          void $ getAndReportParserError io w tok "Can't have more than 255 parameters."
       nextParamName <-
         consume io w ex st TokenType.IDENTIFIER "Expect parameter name."
       match st [TokenType.COMMA] >>= \case
