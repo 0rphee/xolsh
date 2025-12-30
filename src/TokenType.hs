@@ -42,7 +42,7 @@ data TokenType
   | CLASS
   | ELSE
   | FALSE
-  | -- data constructors named 'FUN'  are problematic when using TH, see: https://gitlab.haskell.org/ghc/ghc/-/issues/20902
+  | -- data constructors named 'FUN' are problematic when using TH, see: https://gitlab.haskell.org/ghc/ghc/-/issues/20902
     FUNN
   | FOR
   | IF
@@ -61,10 +61,6 @@ data TokenType
 data Token = Token
   { ttype :: !TokenType
   , lexeme :: !ShortByteString
-  , --   , literal :: !Literal -- Object in jlox reference implementation, removed here and moved to @TokenType@
-    tline :: !Int
+  , tline :: !Int
   }
   deriving (Show, Lift)
-
--- instance Show Token where
---   show tok = show tok.ttype <> " " <> BS.unpack tok.lexeme <> " " -- <> show tok.literal

@@ -48,7 +48,7 @@ optimizeExpressions s = case s of
   SBlock a -> SBlock $ fmap optimizeExpressions a
   SClass _a _b _c _ -> s
   SExpression a -> SExpression $ optimizeExpression a
-  SFunction _a -> s
+  SFunction _a _b -> s
   SIf a b c ->
     SIf (optimizeExpression a) (optimizeExpressions b) (fmap optimizeExpressions c)
   SPrint a -> SPrint $ optimizeExpression a

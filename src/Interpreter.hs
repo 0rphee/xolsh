@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE LambdaCase #-}
@@ -155,17 +154,18 @@ evaluate io ex st = \case
                   (\io' ex' st' -> call io' ex' st' f.fun_closure)
                   argVals
               )
-        when (callable_arity /= V.length argumentsExprs) $
-          Exception.throw ex $
-            Error.RuntimeError
-              parenLine
-              ( "Expected "
-                  <> BS.pack (show callable_arity)
-                  <> " arguments but got "
-                  <> BS.pack (show $ V.length argumentsExprs)
-                  <> "."
-              )
-        callable_call
+        if (callable_arity /= V.length argumentsExprs)
+          then
+            Exception.throw ex $
+              Error.RuntimeError
+                parenLine
+                ( "Expected "
+                    <> BS.pack (show callable_arity)
+                    <> " arguments but got "
+                    <> BS.pack (show $ V.length argumentsExprs)
+                    <> "."
+                )
+          else callable_call
       _ ->
         Exception.throw ex $
           Error.RuntimeError parenLine "Can only call functions and classes."
@@ -328,7 +328,7 @@ execute io ex st = \case
                 Error.RuntimeError superclassTok.tline "Superclass must be a class."
     (mayInitMethdThisClass, thisClassMethods) <-
       V.foldM
-        ( \(prevMayInit, acc) next@(Stmt.FFunctionH fname _ _ _accessInfo) -> do
+        ( \(prevMayInit, acc) next@(Stmt.FFunctionH fname _ _) -> do
             let isInit = fname.lexeme == "init"
             fun <- newFun st next isInit
             let mayInit = if isInit then Just fun else prevMayInit
@@ -395,7 +395,7 @@ execute io ex st = \case
               )
 
     assignFromMap io ex klassName accessInfo klass origEnv.values
-  Stmt.SFunction f@(Stmt.FFunctionH _name accessInfo _params _body) -> do
+  Stmt.SFunction accessInfo f -> do
     -- environment of the function where it is declared
     function <- Expr.LCallable . Expr.CFunction <$> newFun st f False
     State.get st >>= \s -> define io accessInfo.index function s.environment
@@ -407,7 +407,7 @@ newFun
   -> Bool
   -> Eff es Expr.LoxRuntimeFunction
 newFun st fun isInitializer = case fun of
-  Stmt.FFunctionH name _accessInfo params body -> do
+  Stmt.FFunctionH name params body -> do
     -- environment of the function where it is declared
     closure <- State.get st <&> (.environment)
     let function =

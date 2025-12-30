@@ -105,11 +105,11 @@ resolveStmt io w st = \case
 
     nMethods <-
       traverse
-        ( \(Stmt.FFunctionH fname _accessInfo params body) -> do
+        ( \(Stmt.FFunctionH fname params body) -> do
             let funtype = if fname.lexeme == "init" then FTInitializer else FTMethod
             (nBody, paramsAccessInfo) <- resolveFunction io w st params body funtype
-            methodAccessInfo <- define st fname
-            pure $ Stmt.FFunctionH fname methodAccessInfo paramsAccessInfo nBody
+            _methodAccessInfo <- define st fname
+            pure $ Stmt.FFunctionH fname paramsAccessInfo nBody
         )
         _methods
     endScope st
@@ -122,10 +122,10 @@ resolveStmt io w st = \case
     nInitializer <- traverse (resolveExpr io w st) initializer
     accessInfo <- define st name
     pure $ Stmt.SVar accessInfo nInitializer
-  Stmt.SFunction (Stmt.FFunctionH name _accessInfo params body) -> do
+  Stmt.SFunction _accessInfo (Stmt.FFunctionH name params body) -> do
     accessInfo <- declare io w st name >> define st name
     (nBody, paramAccessInfo) <- resolveFunction io w st params body FTFunction
-    pure $ Stmt.SFunction $ Stmt.FFunctionH name accessInfo paramAccessInfo nBody
+    pure $ Stmt.SFunction accessInfo $ Stmt.FFunctionH name paramAccessInfo nBody
   Stmt.SExpression expr -> Stmt.SExpression <$> resolveExpr io w st expr
   Stmt.SIf cond thenBody elseBody -> do
     nCond <- resolveExpr io w st cond

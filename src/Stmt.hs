@@ -29,7 +29,7 @@ data Stmt (phase :: Expr.IPhase)
     SExpression !(Expr.Expr phase)
   | -- | > SFunction
     -- >   FunctionH phase
-    SFunction !(FunctionH phase)
+    SFunction !(Expr.XEnvDistance phase) !(FunctionH phase)
   | -- | > SIf
     -- >   Expr phase -- condition
     -- >   (Stmt phase) -- thenBranch
@@ -62,7 +62,6 @@ data FunctionH (phase :: Expr.IPhase)
     -- >   (Vector (Stmt phase))  -- body
     FFunctionH
       !TokenType.Token
-      !(Expr.XEnvDistance phase)
       !(Vector (Expr.XAccessInfo phase))
       !(Vector (Stmt phase))
 
@@ -71,7 +70,7 @@ getType = \case
   SBlock _ -> "SBlock"
   SClass t _ _ _ -> "SClass: ," <> show t
   SExpression _ -> "SExpression: "
-  SFunction _ -> "SFunction"
+  SFunction _ _ -> "SFunction"
   SIf _ _ _ -> "SIf"
   SPrint _ -> "SPrint"
   SReturn _ _ -> "SReturn"

@@ -137,7 +137,7 @@ functionDeclaration
   -> Exception ParseException ex
   -> State Parser st
   -> Eff es Stmt.Stmt1
-functionDeclaration io w ex st = Stmt.SFunction <$> function io w ex st "function"
+functionDeclaration io w ex st = Stmt.SFunction () <$> function io w ex st "function"
 
 {-# INLINEABLE function #-}
 function
@@ -162,7 +162,7 @@ function io w ex st kind = do
   consume io w ex st TokenType.RIGHT_PAREN "Expect ')' after parameters."
   consume io w ex st TokenType.LEFT_BRACE $
     "Expect '{' before " <> kind <> " body."
-  Stmt.FFunctionH name () parameters <$> block io w ex st
+  Stmt.FFunctionH name parameters <$> block io w ex st
   where
     getParams
       :: VB.Builder TokenType.Token
