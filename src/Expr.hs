@@ -67,6 +67,10 @@ type family XEGrouping (phase :: IPhase) where
   XEGrouping PH1 = Expr PH1
   XEGrouping PH2 = Void
 
+type family XIsTailCall (phase :: IPhase) where
+  XIsTailCall PH1 = ()
+  XIsTailCall PH2 = Bool
+
 data Expr (phase :: IPhase)
   = -- | > EAssign
     -- >   Token -- name
@@ -81,7 +85,11 @@ data Expr (phase :: IPhase)
     -- >   (Expr phase)  -- callee
     -- >   Token  -- paren
     -- >   [(Expr phase)] -- arguments
-    ECall !(Expr phase) !(XCallToken phase) !(Vector (Expr phase))
+    ECall
+      !(Expr phase)
+      !(XCallToken phase)
+      !(Vector (Expr phase))
+      (XIsTailCall phase)
   | -- | > EGet
     -- >   Expr phase -- object
     -- >   Token -- name

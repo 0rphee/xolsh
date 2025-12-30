@@ -22,7 +22,7 @@ import Data.Foldable (traverse_)
 import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.Hashable qualified as Hashable
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict qualified as IM
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
@@ -135,7 +135,7 @@ evaluate io ex st = \case
         TokenType.SLASH -> Expr.LNumber <$> commonIfNumber (/)
         TokenType.STAR -> Expr.LNumber <$> commonIfNumber (*)
         _ -> pure Expr.LNil -- marked as unreachable (section 7.2.5)
-  Expr.ECall callee parenLine argumentsExprs -> do
+  Expr.ECall callee parenLine argumentsExprs isTailCall -> do
     calleeVal <- evaluate io ex st callee
     argVals <- traverse (evaluate io ex st) argumentsExprs
     case calleeVal of
@@ -147,11 +147,12 @@ evaluate io ex st = \case
           Expr.CFunction f ->
             pure
               ( f.fun_arity
-              , (Expr.fun_call f)
+              , Expr.fun_call
+                  f
                   io
                   ex
                   st
-                  (\io' ex' st' -> call io' ex' st' f.fun_closure)
+                  (\io' ex' st' -> call io' ex' st' isTailCall f.fun_closure)
                   argVals
               )
         if (callable_arity /= V.length argumentsExprs)
@@ -370,7 +371,7 @@ execute io ex st = \case
                           io'
                           ex'
                           st'
-                          (\i e s -> call i e s initFunc.fun_closure)
+                          (\i e s -> call i e s False initFunc.fun_closure)
                           args
                         pure classInstance
                    in (originalInitMthd.fun_arity, initM)
@@ -427,6 +428,7 @@ call
   => IOE io
   -> Exception Error.RuntimeException ex
   -> State InterpreterState st
+  -> Bool
   -> Environment
   -> TokenType.Token
   -> Vector Stmt.Stmt2
@@ -434,18 +436,22 @@ call
   -> Vector Expr.LiteralValue
   -> Bool
   -> Eff es Expr.LiteralValue
-call io ex st closure funToken body params args isInitializer = do
+call io ex st isTailCall closure funToken body params args isInitializer = do
   -- environment of the function before being called
   prevEnv <- State.get st <&> (.environment)
   -- local environment of the function with arguments paired with parameters
-  funcEnvironment <-
+  funcEnvironment <- do
+    let envToUse = \newIM ->
+          effIO io $
+            if isTailCall
+              then writeIORef prevEnv.values newIM >> pure prevEnv
+              else newIORef newIM <&> (`LocalEnvironment` closure)
     V.zipWith (\accessInfo -> (accessInfo.index,)) params args
       & V.toList
       & IM.fromList
-      & newIORef
-      & effIO io
-      <&> (`LocalEnvironment` closure)
+      & envToUse
   -- if the function does not return via a return stmt, it will default to nil
+  -- TODO: if isTailCall we do not need to executeWithinEnvs
   executeWithinEnvs ex st (\e -> within io e st) prevEnv funcEnvironment
   where
     within io' ex' st' = do

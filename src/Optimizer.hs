@@ -63,7 +63,7 @@ computeConstantExpressions :: Expr.Expr2 -> Expr.Expr2
 computeConstantExpressions e = case e of
   EAssign t a c -> EAssign t (computeConstantExpressions a) c
   EBinary l t r -> handleBin l t r
-  ECall a t c -> ECall a t (fmap computeConstantExpressions c)
+  ECall a t c i -> ECall a t (fmap computeConstantExpressions c) i
   EGet a t -> EGet a t
   ELiteral _ -> e
   ELogical l t r -> handleBin l t r

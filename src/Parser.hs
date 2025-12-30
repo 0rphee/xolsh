@@ -488,7 +488,7 @@ call io w ex st = do
           -- if we have found a RIGHT_PAREN
           False -> pure V.empty
       paren <- consume io w ex st TokenType.RIGHT_PAREN "Expect ')' after arguments."
-      pure $ ECall callee paren arguments
+      pure $ ECall callee paren arguments ()
       where
         getArgs
           :: Int

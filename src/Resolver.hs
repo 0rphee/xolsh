@@ -24,7 +24,7 @@ import TokenType qualified
 
 data FunctionType
   = FTNone
-  | FTFunction
+  | FTFunction !ShortByteString
   | FTInitializer
   | FTMethod
   deriving (Eq)
@@ -124,7 +124,8 @@ resolveStmt io w st = \case
     pure $ Stmt.SVar accessInfo nInitializer
   Stmt.SFunction _accessInfo (Stmt.FFunctionH name params body) -> do
     accessInfo <- declare io w st name >> define st name
-    (nBody, paramAccessInfo) <- resolveFunction io w st params body FTFunction
+    (nBody, paramAccessInfo) <-
+      resolveFunction io w st params body (FTFunction name.lexeme)
     pure $ Stmt.SFunction accessInfo $ Stmt.FFunctionH name paramAccessInfo nBody
   Stmt.SExpression expr -> Stmt.SExpression <$> resolveExpr io w st expr
   Stmt.SIf cond thenBody elseBody -> do
@@ -142,7 +143,12 @@ resolveStmt io w st = \case
         ( \e -> do
             when (curF == FTInitializer) $
               Error.resolverError io w t "Can't return a value from an initializer."
-            resolveExpr io w st e
+            resolveExpr io w st e <&> \case
+              Expr.ECall var@(Expr.EVariable funToken _) paren args _isTailCall
+                | (FTFunction lexeme) <- curF
+                , lexeme == funToken.lexeme ->
+                    Expr.ECall var paren args True
+              e' -> e'
         )
         expr
   Stmt.SWhile cond body -> do
@@ -210,10 +216,10 @@ resolveExpr io w st = \case
     nL <- resolveExpr io w st left
     nR <- resolveExpr io w st right
     pure $ Expr.EBinary nL t nR
-  Expr.ECall callee t args -> do
+  Expr.ECall callee t args _isTailCall -> do
     nCallee <- resolveExpr io w st callee
     nArgs <- traverse (resolveExpr io w st) args
-    pure $ Expr.ECall nCallee t.tline nArgs
+    pure $ Expr.ECall nCallee t.tline nArgs False
   Expr.EGet object name -> do
     nObject <- resolveExpr io w st object
     pure $ Expr.EGet nObject name
