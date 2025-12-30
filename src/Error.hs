@@ -66,7 +66,6 @@ resolverError = parseError
 
 data RuntimeException
   = RuntimeError {line :: !Int, message :: !ByteString}
-  | RuntimeReturn {value :: !Expr.LiteralValue}
 
 reportRuntimeError
   :: io :> es => IOE io -> RuntimeException -> Eff es ()

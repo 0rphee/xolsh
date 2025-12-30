@@ -7,6 +7,8 @@
 
 module Interpreter (evaluate, interpret) where
 
+import Bluefin.EarlyReturn (EarlyReturn)
+import Bluefin.EarlyReturn qualified as EarlyReturn
 import Bluefin.Eff
 import Bluefin.Exception (Exception)
 import Bluefin.Exception qualified as Exception
@@ -274,25 +276,26 @@ stringify io = \case
     pure $ cname <> " instance"
 
 execute
-  :: forall es io ex st
-   . (io :> es, ex :> es, st :> es)
+  :: forall es io ex st ret
+   . (io :> es, ex :> es, st :> es, ret :> es)
   => IOE io
   -> Exception Error.RuntimeException ex
   -> State InterpreterState st
+  -> EarlyReturn Expr.LiteralValue ret
   -> Stmt.Stmt2
   -> Eff es ()
-execute io ex st = \case
+execute io ex st ret = \case
   Stmt.SExpression expression -> void $ evaluate io ex st expression
   Stmt.SIf condition thenBranch elseBranch -> do
     c <- isTruthy <$> evaluate io ex st condition
     if c
-      then execute io ex st thenBranch
-      else traverse_ (execute io ex st) elseBranch
+      then execute io ex st ret thenBranch
+      else traverse_ (execute io ex st ret) elseBranch
   Stmt.SPrint expression ->
     evaluate io ex st expression >>= stringify io >>= effIO io . BS.putStrLn
   Stmt.SReturn _ valueExpr -> do
     value <- fromMaybe Expr.LNil <$> traverse (evaluate io ex st) valueExpr
-    Exception.throw ex $ Error.RuntimeReturn value
+    EarlyReturn.returnEarly ret value
   Stmt.SVar accessInfo initializer -> do
     value <- case initializer of
       Nothing -> pure Expr.LNil
@@ -301,7 +304,7 @@ execute io ex st = \case
   Stmt.SWhile condition body -> do
     whileM
       (isTruthy <$> evaluate io ex st condition)
-      (execute io ex st body)
+      (execute io ex st ret body)
   Stmt.SBlock statements -> do
     newEnvValueMapRef <- effIO io $ newIORef mempty
     prevEnv <- State.get st <&> (.environment)
@@ -309,6 +312,7 @@ execute io ex st = \case
       io
       ex
       st
+      ret
       statements
       prevEnv
       (LocalEnvironment newEnvValueMapRef prevEnv)
@@ -459,18 +463,11 @@ call io ex st isTailCall closure funToken body params args isInitializer = do
   where
     -- if the function does not return via a return stmt, it will default to nil
     within io' ex' st' = do
-      Exception.try (\e -> executeStmts io' e st' body) >>= \case
-        Left e ->
-          case e of
-            Error.RuntimeReturn v ->
-              if isInitializer
-                then execIfInit io' ex'
-                else pure v
-            _ -> Exception.throw ex' e
-        Right () ->
+      EarlyReturn.withEarlyReturn (\ret -> executeStmts io' ex' st' ret body) >>= \case
+        v ->
           if isInitializer
             then execIfInit io' ex'
-            else pure Expr.LNil
+            else pure v
     execIfInit io' ex' = do
       effIO io' (readIORef closure.values) >>= \vmap ->
         case vmap IM.!? thisHash of
@@ -483,15 +480,17 @@ call io ex st isTailCall closure funToken body params args isInitializer = do
                 "Error in interpreter, should have found reference to 'this' to return in _.init() class method."
 
 executeBlock
-  :: (io :> es, ex :> es, st :> es)
+  :: (io :> es, ex :> es, st :> es, ret :> es)
   => IOE io
   -> Exception Error.RuntimeException ex
   -> State InterpreterState st
+  -> EarlyReturn Expr.LiteralValue ret
   -> Vector Stmt.Stmt2
   -> Environment
   -> Environment
   -> Eff es ()
-executeBlock io ex st statements = executeWithinEnvs ex st (\e -> executeStmts io e st statements)
+executeBlock io ex st ret statements =
+  executeWithinEnvs ex st (\e -> executeStmts io e st ret statements >> pure ())
 
 executeWithinEnvs
   :: (ex :> es, st :> es)
@@ -528,11 +527,11 @@ interpret io statements = do
         { environment = GlobalEnvironment globalsRef
         , globals = globalsRef
         }
-  value :: Either Error.RuntimeException () <-
-    State.evalState initialInterpreterState $ \st -> Exception.try $ \ex -> executeStmts io ex st statements
+  value :: Either Error.RuntimeException Expr.LiteralValue <-
+    State.evalState initialInterpreterState $ \st -> Exception.try $ \ex -> EarlyReturn.withEarlyReturn $ \ret -> executeStmts io ex st ret statements
   case value of
     Left e -> Error.reportRuntimeError io e >> pure Error.Error
-    Right () -> pure Error.NoError
+    Right _value -> pure Error.NoError
   where
     globals :: IORef ValueMap -> ValueMap
     globals globalsRef =
@@ -633,13 +632,14 @@ readByte handle = do
   pure res
 
 executeStmts
-  :: (io :> es, ex :> es, st :> es)
+  :: (io :> es, ex :> es, st :> es, ret :> es)
   => IOE io
   -> Exception Error.RuntimeException ex
   -> State InterpreterState st
+  -> EarlyReturn Expr.LiteralValue ret
   -> Vector Stmt.Stmt2
-  -> Eff es ()
-executeStmts io ex st = traverse_ (execute io ex st)
+  -> Eff es Expr.LiteralValue
+executeStmts io ex st ret v = traverse_ (execute io ex st ret) v >> pure Expr.LNil
 
 recPrintEnvs
   :: io :> es
