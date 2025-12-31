@@ -17,6 +17,7 @@ module Expr
   , XEGrouping
   , AccessInfo (..)
   , LoxRuntimeFunction (..)
+  , LoxNativeFunction (..)
   , LoxRuntimeClass (..)
   , isNumericalOperator
   , literalValueType
@@ -129,40 +130,41 @@ data Expr (phase :: IPhase)
 
 data Callable
   = CFunction !LoxRuntimeFunction
+  | CNativeFunction !LoxNativeFunction
   | CClass !(IORef LoxRuntimeClass)
   deriving (Eq)
 
 data LoxRuntimeFunction = LRFunction
   { fun_toString :: !ShortByteString
-  , fun_arity :: !Int
+  , fun_params :: !(Vector AccessInfo)
+  , fun_token_line :: !Int
   , fun_closure :: !Environment -- closure environment
   , fun_isInitializer :: !Bool
-  , fun_call
+  , fun_body :: !(Vector Stmt.Stmt2)
+  }
+
+instance Eq LoxRuntimeFunction where
+  a == b =
+    (a.fun_isInitializer == b.fun_isInitializer)
+      && (a.fun_params == b.fun_params)
+      && (a.fun_toString == a.fun_toString)
+      && (a.fun_closure == b.fun_closure)
+
+data LoxNativeFunction = LNFunction
+  { ln_fun_arity :: !Int
+  , ln_fun_call
       :: forall es io ex st
        . (io :> es, ex :> es, st :> es)
       => IOE io
       -> Exception Error.RuntimeException ex
       -> State InterpreterState st
-      -> ( IOE io
-           -> Exception Error.RuntimeException ex
-           -> State InterpreterState st
-           -> Token -- function token
-           -> Vector Stmt.Stmt2 -- body of lox function
-           -> Vector AccessInfo -- parameters
-           -> Vector LiteralValue -- arguments
-           -> Bool -- isInitalizer
-           -> Eff es LiteralValue -- this function is ignored when calling native functions
-         )
       -> Vector LiteralValue -- arguments
       -> Eff es LiteralValue
   }
 
-instance Eq LoxRuntimeFunction where
+instance Eq LoxNativeFunction where
   a == b =
-    (a.fun_arity == b.fun_arity)
-      && (a.fun_isInitializer == b.fun_isInitializer)
-      && (a.fun_toString == a.fun_toString)
-      && (a.fun_closure == b.fun_closure)
+    (a.ln_fun_arity == b.ln_fun_arity)
 
 data LoxRuntimeClass = LRClass
   { class_name :: !ShortByteString
@@ -170,7 +172,7 @@ data LoxRuntimeClass = LRClass
   , class_methods :: !(IORef (Map ShortByteString LoxRuntimeFunction))
   , class_superclass :: !(Maybe (IORef LoxRuntimeClass))
   , class_call
-      :: forall (es :: Effects) (io :: Effects) (ex :: Effects) (st :: Effects)
+      :: forall es io ex st
        . (io :> es, ex :> es, st :> es)
       => IOE io
       -> Exception Error.RuntimeException ex

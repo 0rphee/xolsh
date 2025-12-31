@@ -1,8 +1,8 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE TupleSections #-}
 
 module Interpreter (evaluate, interpret) where
@@ -150,15 +150,16 @@ evaluate io ex st = \case
           Expr.CClass ref -> do
             effIO io (readIORef ref)
               <&> (\cv -> (cv.class_arity, (Expr.class_call cv io ex st ref argVals)))
+          Expr.CNativeFunction f -> pure $ (f.ln_fun_arity, Expr.ln_fun_call f io ex st argVals)
           Expr.CFunction f ->
             pure
-              ( f.fun_arity
-              , Expr.fun_call
-                  f
+              ( V.length f.fun_params
+              , call
                   io
                   ex
                   st
-                  (\io' ex' st' -> call io' ex' st' isTailCall f.fun_closure)
+                  f
+                  isTailCall
                   argVals
               )
         if (callable_arity /= V.length argumentsExprs)
@@ -271,6 +272,7 @@ stringify io = \case
   Expr.LString v -> pure $ SBS.fromShort v
   Expr.LCallable (Expr.CClass cref) -> effIO io (readIORef cref) <&> (.class_name) <&> SBS.fromShort
   Expr.LCallable (Expr.CFunction f) -> pure $ SBS.fromShort f.fun_toString
+  Expr.LCallable (Expr.CNativeFunction _f) -> pure "<native fn>"
   Expr.LInstance _ cref -> do
     cname <- effIO io (readIORef cref) <&> (.class_name) <&> SBS.fromShort
     pure $ cname <> " instance"
@@ -375,14 +377,15 @@ execute io ex st ret = \case
                   let initM io' ex' st' fieldMapRef thisClassRef args = do
                         (initFunc, classInstance) <-
                           bind io' fieldMapRef thisClassRef originalInitMthd
-                        (Expr.fun_call initFunc)
+                        call
                           io'
                           ex'
                           st'
-                          (\i e s -> call i e s False initFunc.fun_closure)
+                          initFunc
+                          False
                           args
                         pure classInstance
-                   in (originalInitMthd.fun_arity, initM)
+                   in (V.length originalInitMthd.fun_params, initM)
                 Nothing ->
                   let initM _io _ex _st fieldMapRef thisClassRef _args =
                         pure $ Expr.LInstance fieldMapRef thisClassRef
@@ -422,11 +425,11 @@ newFun st fun isInitializer = case fun of
     let function =
           Expr.LRFunction
             { Expr.fun_toString = "<fn " <> name.lexeme <> ">"
-            , Expr.fun_arity = V.length params
+            , Expr.fun_token_line = name.tline
+            , Expr.fun_params = params
             , Expr.fun_closure = closure
-            , Expr.fun_call = \io' ex' st' evaluator args ->
-                evaluator io' ex' st' name body params args isInitializer
             , Expr.fun_isInitializer = isInitializer
+            , Expr.fun_body = body
             }
     pure function
 
@@ -436,48 +439,43 @@ call
   => IOE io
   -> Exception Error.RuntimeException ex
   -> State InterpreterState st
+  -> Expr.LoxRuntimeFunction
   -> Bool
-  -> Environment
-  -> TokenType.Token
-  -> Vector Stmt.Stmt2
-  -> Vector Expr.AccessInfo
   -> Vector Expr.LiteralValue
-  -> Bool
   -> Eff es Expr.LiteralValue
-call io ex st isTailCall closure funToken body params args isInitializer = do
+call io ex st f isTailCall args = do
   -- environment of the function before being called
-  let withCleanFunctionValueMap :: (ValueMap -> r) -> r
-      withCleanFunctionValueMap f =
-        V.zipWith (\accessInfo -> (accessInfo.index,)) params args
+  let newValueMap =
+        V.zipWith (\accessInfo -> (accessInfo.index,)) f.fun_params args
           & V.toList
           & IM.fromList
-          & f
   prevEnv <- State.get st <&> (.environment)
   if isTailCall
     then do
-      withCleanFunctionValueMap $ \newIM -> effIO io $ writeIORef prevEnv.values newIM
+      effIO io $ writeIORef prevEnv.values newValueMap
       runFun io ex st
     else do
-      funcEnvironment <- withCleanFunctionValueMap $ \newIM -> effIO io $ newIORef newIM <&> (`LocalEnvironment` closure)
+      funcEnvironment <-
+        effIO io $ newIORef newValueMap <&> (`LocalEnvironment` f.fun_closure)
       executeWithinEnvs ex st (\e -> within io e st) prevEnv funcEnvironment
   where
     -- if the function does not return via a return stmt, it will default to nil
     runFun io' ex' st' =
-      EarlyReturn.withEarlyReturn (\ret -> executeStmts io' ex' st' ret body)
+      EarlyReturn.withEarlyReturn (\ret -> executeStmts io' ex' st' ret f.fun_body)
     within io' ex' st' =
       runFun io' ex' st' >>= \v ->
-        if isInitializer
+        if f.fun_isInitializer
           then execIfInit io' ex'
           else pure v
     execIfInit io' ex' = do
-      effIO io' (readIORef closure.values) >>= \vmap ->
+      effIO io' (readIORef f.fun_closure.values) >>= \vmap ->
         case vmap IM.!? thisHash of
           Just thisInstance ->
             pure thisInstance
           Nothing ->
             Exception.throw ex' $
               Error.RuntimeError
-                funToken.tline
+                f.fun_token_line
                 "Error in interpreter, should have found reference to 'this' to return in _.init() class method."
 
 executeBlock
@@ -522,7 +520,7 @@ interpret
   :: io :> es => IOE io -> Vector Stmt.Stmt2 -> Eff es Error.ErrorPresent
 interpret io statements = do
   initialInterpreterState <- effIO io $ do
-    rec globalsRef <- newIORef (globals globalsRef)
+    globalsRef <- newIORef globals
     pure $
       InterpreterState
         { environment = GlobalEnvironment globalsRef
@@ -534,20 +532,17 @@ interpret io statements = do
     Left e -> Error.reportRuntimeError io e >> pure Error.Error
     Right _value -> pure Error.NoError
   where
-    globals :: IORef ValueMap -> ValueMap
-    globals globalsRef =
+    globals :: ValueMap
+    globals =
       IM.fromList $
-        (\(k :: ShortByteString, v) -> (Hashable.hash k, v))
+        (\(k, v) -> (Hashable.hash @ShortByteString k, v))
           <$> [
                 ( "clock"
                 , Expr.LCallable $
-                    Expr.CFunction $
-                      Expr.LRFunction
-                        { Expr.fun_toString = "<native fn>"
-                        , Expr.fun_arity = 0
-                        , Expr.fun_closure = GlobalEnvironment globalsRef
-                        , Expr.fun_isInitializer = False
-                        , Expr.fun_call = \io' _ex' _st' _evaluator _args ->
+                    Expr.CNativeFunction $
+                      Expr.LNFunction
+                        { Expr.ln_fun_arity = 0
+                        , Expr.ln_fun_call = \io' _ex' _st' _args ->
                             -- realToFrac & fromIntegral treat NominalDiffTime as seconds
                             Expr.LNumber . realToFrac <$> effIO io' Time.getPOSIXTime
                         }
@@ -555,13 +550,10 @@ interpret io statements = do
               ,
                 ( "read"
                 , Expr.LCallable $
-                    Expr.CFunction $
-                      Expr.LRFunction
-                        { Expr.fun_toString = "<native fn>"
-                        , Expr.fun_arity = 0
-                        , Expr.fun_closure = GlobalEnvironment globalsRef
-                        , Expr.fun_isInitializer = False
-                        , Expr.fun_call = \io' _ex' _st' _evaluator _args ->
+                    Expr.CNativeFunction $
+                      Expr.LNFunction
+                        { Expr.ln_fun_arity = 0
+                        , Expr.ln_fun_call = \io' _ex' _st' _args ->
                             effIO io' $ readByte stdin
                         }
                 )
@@ -569,13 +561,10 @@ interpret io statements = do
                 ( "utf"
                 , -- see https://docs.oracle.com/javase/specs/jls/se20/html/jls-5.html#jls-5.1.3 and original java loxlox
                   Expr.LCallable $
-                    Expr.CFunction $
-                      Expr.LRFunction
-                        { Expr.fun_toString = "<native fn>"
-                        , Expr.fun_arity = 4
-                        , Expr.fun_closure = GlobalEnvironment globalsRef
-                        , Expr.fun_isInitializer = False
-                        , Expr.fun_call = \_io _ex _st _evaluator _args -> do
+                    Expr.CNativeFunction $
+                      Expr.LNFunction
+                        { Expr.ln_fun_arity = 4
+                        , Expr.ln_fun_call = \_io _ex _st _args -> do
                             let bytes =
                                   V.foldr'
                                     (\n acc -> case n of Expr.LNumber d -> round d : acc; _else -> acc)
@@ -587,14 +576,11 @@ interpret io statements = do
               ,
                 ( "exit"
                 , Expr.LCallable $
-                    Expr.CFunction $
-                      Expr.LRFunction
-                        { Expr.fun_toString = "<native fn>"
-                        , Expr.fun_arity = 1
-                        , Expr.fun_closure = GlobalEnvironment globalsRef
-                        , Expr.fun_isInitializer = False
-                        , Expr.fun_call = \_io _ex _st _evaluator _args ->
-                            let exitCode = case _args `V.unsafeIndex` 0 of
+                    Expr.CNativeFunction $
+                      Expr.LNFunction
+                        { Expr.ln_fun_arity = 1
+                        , Expr.ln_fun_call = \_io _ex _st _args ->
+                            let exitCode = case _args V.! 0 of
                                   Expr.LNumber n -> floor n
                                   _ -> 70
                              in effIO _io $ System.Exit.exitWith $ System.Exit.ExitFailure exitCode
@@ -603,14 +589,11 @@ interpret io statements = do
               ,
                 ( "printerr"
                 , Expr.LCallable $
-                    Expr.CFunction $
-                      Expr.LRFunction
-                        { Expr.fun_toString = "<native fn>"
-                        , Expr.fun_arity = 1
-                        , Expr.fun_closure = GlobalEnvironment globalsRef
-                        , Expr.fun_isInitializer = False
-                        , Expr.fun_call = \io' _ex _st _evaluator _args -> do
-                            errstr <- stringify io' $ _args `V.unsafeIndex` 0
+                    Expr.CNativeFunction $
+                      Expr.LNFunction
+                        { Expr.ln_fun_arity = 1
+                        , Expr.ln_fun_call = \io' _ex _st _args -> do
+                            errstr <- stringify io' $ _args V.! 0
                             effIO io' $ BS.hPutStrLn stderr errstr
                             pure Expr.LNil
                         }
