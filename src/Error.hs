@@ -15,7 +15,6 @@ import Bluefin.IO (IOE, effIO)
 import Bluefin.Writer (Writer, tell)
 import Data.ByteString.Char8 as BS
 import Data.ByteString.Short qualified as SBS
-import {-# SOURCE #-} Expr qualified
 import System.IO (stderr)
 import TokenType (Token (..), TokenType (..))
 

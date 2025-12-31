@@ -456,18 +456,19 @@ call io ex st isTailCall closure funToken body params args isInitializer = do
   if isTailCall
     then do
       withCleanFunctionValueMap $ \newIM -> effIO io $ writeIORef prevEnv.values newIM
-      within io ex st
+      runFun io ex st
     else do
       funcEnvironment <- withCleanFunctionValueMap $ \newIM -> effIO io $ newIORef newIM <&> (`LocalEnvironment` closure)
       executeWithinEnvs ex st (\e -> within io e st) prevEnv funcEnvironment
   where
     -- if the function does not return via a return stmt, it will default to nil
-    within io' ex' st' = do
-      EarlyReturn.withEarlyReturn (\ret -> executeStmts io' ex' st' ret body) >>= \case
-        v ->
-          if isInitializer
-            then execIfInit io' ex'
-            else pure v
+    runFun io' ex' st' =
+      EarlyReturn.withEarlyReturn (\ret -> executeStmts io' ex' st' ret body)
+    within io' ex' st' =
+      runFun io' ex' st' >>= \v ->
+        if isInitializer
+          then execIfInit io' ex'
+          else pure v
     execIfInit io' ex' = do
       effIO io' (readIORef closure.values) >>= \vmap ->
         case vmap IM.!? thisHash of
