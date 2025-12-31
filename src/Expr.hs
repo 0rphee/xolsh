@@ -44,7 +44,7 @@ type Expr1 = Expr PH1
 
 type Expr2 = Expr PH2
 
-data AccessInfo = MkAccessInfo {distance :: !Int, index :: !Int}
+data AccessInfo = MkAccessInfo {distance :: {-# UNPACK #-} !Int, index :: {-# UNPACK #-} !Int}
   deriving (Show, Eq)
 
 type family XEnvDistance (phase :: IPhase) where

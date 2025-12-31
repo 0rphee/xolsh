@@ -147,21 +147,11 @@ evaluate io ex st = \case
     case calleeVal of
       Expr.LCallable c -> do
         (callable_arity, callable_call) <- case c of
-          Expr.CClass ref -> do
+          Expr.CClass ref ->
             effIO io (readIORef ref)
-              <&> (\cv -> (cv.class_arity, (Expr.class_call cv io ex st ref argVals)))
+              <&> (\cv -> (cv.class_arity, Expr.class_call cv io ex st ref argVals))
           Expr.CNativeFunction f -> pure $ (f.ln_fun_arity, Expr.ln_fun_call f io ex st argVals)
-          Expr.CFunction f ->
-            pure
-              ( V.length f.fun_params
-              , call
-                  io
-                  ex
-                  st
-                  f
-                  isTailCall
-                  argVals
-              )
+          Expr.CFunction f -> pure (V.length f.fun_params, call io ex st f isTailCall argVals)
         if (callable_arity /= V.length argumentsExprs)
           then
             Exception.throw ex $
@@ -445,16 +435,20 @@ call
   -> Eff es Expr.LiteralValue
 call io ex st f isTailCall args = do
   -- environment of the function before being called
-  let newValueMap =
-        V.zipWith (\accessInfo -> (accessInfo.index,)) f.fun_params args
-          & V.toList
-          & IM.fromList
   prevEnv <- State.get st <&> (.environment)
   if isTailCall
     then do
-      effIO io $ writeIORef prevEnv.values newValueMap
+      effIO io $ modifyIORef' prevEnv.values $ \prevValueMap ->
+        f.fun_params
+          & V.ifoldl'
+            (\vm ixvec ix -> IM.insert ix.index (args `V.unsafeIndex` ixvec) vm)
+            prevValueMap
       runFun io ex st
     else do
+      let newValueMap =
+            V.zipWith (\accessInfo -> (accessInfo.index,)) f.fun_params args
+              & V.toList
+              & IM.fromList
       funcEnvironment <-
         effIO io $ newIORef newValueMap <&> (`LocalEnvironment` f.fun_closure)
       executeWithinEnvs ex st (\e -> within io e st) prevEnv funcEnvironment
