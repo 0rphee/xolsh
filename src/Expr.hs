@@ -4,23 +4,23 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Expr
-  ( IPhase (..)
-  , Expr (..)
-  , LiteralValue (..)
-  , Expr1
-  , Expr2
-  , Callable (..)
-  , eqLiteralValue
-  , XEnvDistance
-  , XAccessInfo
-  , XToken
-  , XEGrouping
-  , AccessInfo (..)
-  , LoxRuntimeFunction (..)
-  , LoxNativeFunction (..)
-  , LoxRuntimeClass (..)
-  , isNumericalOperator
-  , literalValueType
+  ( IPhase (..),
+    Expr (..),
+    LiteralValue (..),
+    Expr1,
+    Expr2,
+    Callable (..),
+    eqLiteralValue,
+    XEnvDistance,
+    XAccessInfo,
+    XToken,
+    XEGrouping,
+    AccessInfo (..),
+    LoxRuntimeFunction (..),
+    LoxNativeFunction (..),
+    LoxRuntimeClass (..),
+    isNumericalOperator,
+    literalValueType,
   )
 where
 
@@ -135,12 +135,12 @@ data Callable
   deriving (Eq)
 
 data LoxRuntimeFunction = LRFunction
-  { fun_toString :: !ShortByteString
-  , fun_params :: !(Vector AccessInfo)
-  , fun_token_line :: !Int
-  , fun_closure :: !Environment -- closure environment
-  , fun_isInitializer :: !Bool
-  , fun_body :: !(Vector Stmt.Stmt2)
+  { fun_toString :: !ShortByteString,
+    fun_params :: !(Vector AccessInfo),
+    fun_token_line :: !Int,
+    fun_closure :: !Environment, -- closure environment
+    fun_isInitializer :: !Bool,
+    fun_body :: !(Vector Stmt.Stmt2)
   }
 
 instance Eq LoxRuntimeFunction where
@@ -151,15 +151,15 @@ instance Eq LoxRuntimeFunction where
       && (a.fun_closure == b.fun_closure)
 
 data LoxNativeFunction = LNFunction
-  { ln_fun_arity :: !Int
-  , ln_fun_call
-      :: forall es io ex st
-       . (io :> es, ex :> es, st :> es)
-      => IOE io
-      -> Exception Error.RuntimeException ex
-      -> State InterpreterState st
-      -> Vector LiteralValue -- arguments
-      -> Eff es LiteralValue
+  { ln_fun_arity :: !Int,
+    ln_fun_call ::
+      forall es io ex st.
+      (io :> es, ex :> es, st :> es) =>
+      IOE io ->
+      Exception Error.RuntimeException ex ->
+      State InterpreterState st ->
+      Vector LiteralValue -> -- arguments
+      Eff es LiteralValue
   }
 
 instance Eq LoxNativeFunction where
@@ -167,19 +167,19 @@ instance Eq LoxNativeFunction where
     (a.ln_fun_arity == b.ln_fun_arity)
 
 data LoxRuntimeClass = LRClass
-  { class_name :: !ShortByteString
-  , class_arity :: !Int
-  , class_methods :: !(IORef (Map ShortByteString LoxRuntimeFunction))
-  , class_superclass :: !(Maybe (IORef LoxRuntimeClass))
-  , class_call
-      :: forall es io ex st
-       . (io :> es, ex :> es, st :> es)
-      => IOE io
-      -> Exception Error.RuntimeException ex
-      -> State InterpreterState st
-      -> IORef LoxRuntimeClass -- reference to itself
-      -> Vector LiteralValue -- arguments
-      -> Eff es LiteralValue
+  { class_name :: !ShortByteString,
+    class_arity :: !Int,
+    class_methods :: !(IORef (Map ShortByteString LoxRuntimeFunction)),
+    class_superclass :: !(Maybe (IORef LoxRuntimeClass)),
+    class_call ::
+      forall es io ex st.
+      (io :> es, ex :> es, st :> es) =>
+      IOE io ->
+      Exception Error.RuntimeException ex ->
+      State InterpreterState st ->
+      IORef LoxRuntimeClass -> -- reference to itself
+      Vector LiteralValue -> -- arguments
+      Eff es LiteralValue
   }
 
 instance Eq LoxRuntimeClass where
@@ -196,8 +196,8 @@ data LiteralValue
   | LNumber !Double
   | LCallable !Callable
   | LInstance
-      { _LInstanceFields :: !(IORef (Map ShortByteString LiteralValue))
-      , _LInstanceClass :: !(IORef LoxRuntimeClass)
+      { _LInstanceFields :: !(IORef (Map ShortByteString LiteralValue)),
+        _LInstanceClass :: !(IORef LoxRuntimeClass)
       }
 
 isNumericalOperator :: TokenType -> Maybe (Double -> Double -> LiteralValue)

@@ -22,11 +22,11 @@ import VectorBuilder.Builder as VB
 import VectorBuilder.Vector as VB
 
 data Scanner = Scanner
-  { source :: !ByteString
-  , tokens :: !(VB.Builder TokenType.Token)
-  , start :: !Int
-  , current :: !Int
-  , line :: !Int
+  { source :: !ByteString,
+    tokens :: !(VB.Builder TokenType.Token),
+    start :: !Int,
+    current :: !Int,
+    line :: !Int
   }
 
 substring :: ByteString -> Int -> Int -> ByteString
@@ -38,32 +38,32 @@ myIsAlpha c = isAlpha c || c == '_'
 myIsAlphaNum :: Char -> Bool
 myIsAlphaNum c = myIsAlpha c || isDigit c
 
-scanTokens
-  :: (io :> es, w :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> ByteString
-  -> Eff es (Vector TokenType.Token)
+scanTokens ::
+  (io :> es, w :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  ByteString ->
+  Eff es (Vector TokenType.Token)
 scanTokens io w source =
   State.evalState initialScanner $ \st ->
     scanTokensHelper io st w
   where
     initialScanner =
       Scanner
-        { source = source
-        , tokens = VB.empty
-        , start = 0
-        , current = 0
-        , line = 1
+        { source = source,
+          tokens = VB.empty,
+          start = 0,
+          current = 0,
+          line = 1
         }
 
-scanTokensHelper
-  :: forall es io st w
-   . (io :> es, st :> es, w :> es)
-  => IOE io
-  -> State Scanner st
-  -> Writer Error.ErrorPresent w
-  -> Eff es (Vector TokenType.Token)
+scanTokensHelper ::
+  forall es io st w.
+  (io :> es, st :> es, w :> es) =>
+  IOE io ->
+  State Scanner st ->
+  Writer Error.ErrorPresent w ->
+  Eff es (Vector TokenType.Token)
 scanTokensHelper io st w = do
   whileM
     (not <$> isAtEnd)
@@ -77,9 +77,9 @@ scanTokensHelper io st w = do
           sc.tokens
             <> VB.singleton
               ( TokenType.Token
-                  { TokenType.ttype = TokenType.EOF
-                  , TokenType.lexeme = ""
-                  , TokenType.tline = sc.line
+                  { TokenType.ttype = TokenType.EOF,
+                    TokenType.lexeme = "",
+                    TokenType.tline = sc.line
                   }
               )
       }
@@ -226,7 +226,7 @@ scanTokensHelper io st w = do
 
 {-# INLINE whileM #-}
 {-# SPECIALIZE whileM :: Eff es Bool -> Eff es Bool -> Eff es () #-}
-whileM :: Monad m => m Bool -> m a -> m ()
+whileM :: (Monad m) => m Bool -> m a -> m ()
 whileM cond act = do
   r <- cond
   when r $ act >> whileM cond act

@@ -24,7 +24,7 @@ import Data.Foldable (traverse_)
 import Data.Function ((&))
 import Data.Functor ((<&>))
 import Data.Hashable qualified as Hashable
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.IntMap.Strict qualified as IM
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
@@ -44,14 +44,14 @@ import System.Exit qualified
 import System.IO (Handle, hGetBuf, stderr, stdin)
 import TokenType qualified
 
-evaluate
-  :: forall es io ex st
-   . (io :> es, ex :> es, st :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> State InterpreterState st
-  -> Expr.Expr2
-  -> Eff es Expr.LiteralValue
+evaluate ::
+  forall es io ex st.
+  (io :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  State InterpreterState st ->
+  Expr.Expr2 ->
+  Eff es Expr.LiteralValue
 evaluate io ex st = \case
   Expr.ELiteral val -> pure val
   Expr.ELogical left operator right -> do
@@ -85,8 +85,8 @@ evaluate io ex st = \case
       st
       (TokenType.Token TokenType.THIS "this" keyword.tline)
       ( Expr.MkAccessInfo
-          { Expr.distance = accessInfo.distance - 1
-          , Expr.index = thisHash
+          { Expr.distance = accessInfo.distance - 1,
+            Expr.index = thisHash
           }
       )
       >>= \case
@@ -185,14 +185,14 @@ evaluate io ex st = \case
     -- See note for Double comparison in Lox in Expr.hs
     isEqual = (==)
 
-getInstanceFieldOrMethod
-  :: (io :> es, ex :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> TokenType.Token
-  -> IORef (Map ShortByteString Expr.LiteralValue)
-  -> IORef Expr.LoxRuntimeClass
-  -> Eff es Expr.LiteralValue
+getInstanceFieldOrMethod ::
+  (io :> es, ex :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  TokenType.Token ->
+  IORef (Map ShortByteString Expr.LiteralValue) ->
+  IORef Expr.LoxRuntimeClass ->
+  Eff es Expr.LiteralValue
 getInstanceFieldOrMethod io ex fieldName fieldsRef classSuperclass = do
   fields <- effIO io $ readIORef fieldsRef
   case fields M.!? fieldName.lexeme of
@@ -209,14 +209,14 @@ getInstanceFieldOrMethod io ex fieldName fieldsRef classSuperclass = do
               fieldName.tline
               ("Undefined property '" <> SBS.fromShort fieldName.lexeme <> "'.")
 
-bind
-  :: forall io es
-   . io :> es
-  => IOE io
-  -> IORef (Map ShortByteString Expr.LiteralValue)
-  -> IORef Expr.LoxRuntimeClass
-  -> Expr.LoxRuntimeFunction
-  -> Eff es (Expr.LoxRuntimeFunction, Expr.LiteralValue)
+bind ::
+  forall io es.
+  (io :> es) =>
+  IOE io ->
+  IORef (Map ShortByteString Expr.LiteralValue) ->
+  IORef Expr.LoxRuntimeClass ->
+  Expr.LoxRuntimeFunction ->
+  Eff es (Expr.LoxRuntimeFunction, Expr.LiteralValue)
 bind io fieldsRef classOfInstance runtimeFun = do
   newClosureEnv <-
     effIO io (newIORef IM.empty)
@@ -225,13 +225,13 @@ bind io fieldsRef classOfInstance runtimeFun = do
   define io thisHash classInstance newClosureEnv
   pure (runtimeFun {Expr.fun_closure = newClosureEnv}, classInstance) -- TODO
 
-setInstanceField
-  :: io :> es
-  => IOE io
-  -> TokenType.Token
-  -> Expr.LiteralValue
-  -> IORef (Map ShortByteString Expr.LiteralValue)
-  -> Eff es ()
+setInstanceField ::
+  (io :> es) =>
+  IOE io ->
+  TokenType.Token ->
+  Expr.LiteralValue ->
+  IORef (Map ShortByteString Expr.LiteralValue) ->
+  Eff es ()
 setInstanceField io name value mref =
   effIO io . modifyIORef' mref $
     \fieldMap -> M.insert name.lexeme value fieldMap
@@ -242,11 +242,11 @@ isTruthy = \case
   Expr.LBool v -> v
   _ -> True
 
-stringify
-  :: io :> es
-  => IOE io
-  -> Expr.LiteralValue
-  -> Eff es ByteString
+stringify ::
+  (io :> es) =>
+  IOE io ->
+  Expr.LiteralValue ->
+  Eff es ByteString
 stringify io = \case
   Expr.LNil -> pure "nil"
   Expr.LNumber v ->
@@ -267,15 +267,15 @@ stringify io = \case
     cname <- effIO io (readIORef cref) <&> (.class_name) <&> SBS.fromShort
     pure $ cname <> " instance"
 
-execute
-  :: forall es io ex st ret
-   . (io :> es, ex :> es, st :> es, ret :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> State InterpreterState st
-  -> EarlyReturn Expr.LiteralValue ret
-  -> Stmt.Stmt2
-  -> Eff es ()
+execute ::
+  forall es io ex st ret.
+  (io :> es, ex :> es, st :> es, ret :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  State InterpreterState st ->
+  EarlyReturn Expr.LiteralValue ret ->
+  Stmt.Stmt2 ->
+  Eff es ()
 execute io ex st ret = \case
   Stmt.SExpression expression -> void $ evaluate io ex st expression
   Stmt.SIf condition thenBranch elseBranch -> do
@@ -350,18 +350,18 @@ execute io ex st ret = \case
         just -> do pure just
     when (isJust maySuperClass) $ State.modify st $ \s -> s {environment = s.environment._enclosing} -- restore "super" binding
     let (classArity, initMaker) =
-          let helper -- for type inference
-                :: forall ess ioo exx stt
-                 . ( Int
-                   , (ioo :> ess, exx :> ess, stt :> ess)
-                     => IOE ioo
-                     -> Exception Error.RuntimeException exx
-                     -> State InterpreterState stt
-                     -> IORef (Map ShortByteString Expr.LiteralValue)
-                     -> IORef Expr.LoxRuntimeClass
-                     -> Vector Expr.LiteralValue
-                     -> Eff ess Expr.LiteralValue
-                   )
+          let helper :: -- for type inference
+                forall ess ioo exx stt.
+                ( Int,
+                  (ioo :> ess, exx :> ess, stt :> ess) =>
+                  IOE ioo ->
+                  Exception Error.RuntimeException exx ->
+                  State InterpreterState stt ->
+                  IORef (Map ShortByteString Expr.LiteralValue) ->
+                  IORef Expr.LoxRuntimeClass ->
+                  Vector Expr.LiteralValue ->
+                  Eff ess Expr.LiteralValue
+                )
               helper = case mayInitWSuper of
                 Just originalInitMthd ->
                   let initM io' ex' st' fieldMapRef thisClassRef args = do
@@ -386,13 +386,13 @@ execute io ex st ret = \case
         Expr.LCallable . Expr.CClass
           <$> ( newIORef $
                   Expr.LRClass
-                    { Expr.class_name = klassName.lexeme
-                    , Expr.class_arity = classArity
-                    , Expr.class_call = \io' ex' st' thisClassRef args -> do
+                    { Expr.class_name = klassName.lexeme,
+                      Expr.class_arity = classArity,
+                      Expr.class_call = \io' ex' st' thisClassRef args -> do
                         fieldMapRef <- effIO io' $ newIORef M.empty
-                        initMaker io' ex' st' fieldMapRef thisClassRef args
-                    , Expr.class_methods = thisClassMethods
-                    , Expr.class_superclass = maySuperClass
+                        initMaker io' ex' st' fieldMapRef thisClassRef args,
+                      Expr.class_methods = thisClassMethods,
+                      Expr.class_superclass = maySuperClass
                     }
               )
 
@@ -402,37 +402,37 @@ execute io ex st ret = \case
     function <- Expr.LCallable . Expr.CFunction <$> newFun st f False
     State.get st >>= \s -> define io accessInfo.index function s.environment
 
-newFun
-  :: st :> es
-  => State InterpreterState st
-  -> Stmt.FunctionH2
-  -> Bool
-  -> Eff es Expr.LoxRuntimeFunction
+newFun ::
+  (st :> es) =>
+  State InterpreterState st ->
+  Stmt.FunctionH2 ->
+  Bool ->
+  Eff es Expr.LoxRuntimeFunction
 newFun st fun isInitializer = case fun of
   Stmt.FFunctionH name params body -> do
     -- environment of the function where it is declared
     closure <- State.get st <&> (.environment)
     let function =
           Expr.LRFunction
-            { Expr.fun_toString = "<fn " <> name.lexeme <> ">"
-            , Expr.fun_token_line = name.tline
-            , Expr.fun_params = params
-            , Expr.fun_closure = closure
-            , Expr.fun_isInitializer = isInitializer
-            , Expr.fun_body = body
+            { Expr.fun_toString = "<fn " <> name.lexeme <> ">",
+              Expr.fun_token_line = name.tline,
+              Expr.fun_params = params,
+              Expr.fun_closure = closure,
+              Expr.fun_isInitializer = isInitializer,
+              Expr.fun_body = body
             }
     pure function
 
-call
-  :: forall es io ex st
-   . (io :> es, ex :> es, st :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> State InterpreterState st
-  -> Expr.LoxRuntimeFunction
-  -> Bool
-  -> Vector Expr.LiteralValue
-  -> Eff es Expr.LiteralValue
+call ::
+  forall es io ex st.
+  (io :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  State InterpreterState st ->
+  Expr.LoxRuntimeFunction ->
+  Bool ->
+  Vector Expr.LiteralValue ->
+  Eff es Expr.LiteralValue
 call io ex st f isTailCall args = do
   -- environment of the function before being called
   prevEnv <- State.get st <&> (.environment)
@@ -441,6 +441,7 @@ call io ex st f isTailCall args = do
       effIO io $ modifyIORef' prevEnv.values $ \prevValueMap ->
         f.fun_params
           & V.ifoldl'
+            -- unsafe index is safe, since `call` is not ran if the arity does not match with the arguments
             (\vm ixvec ix -> IM.insert ix.index (args `V.unsafeIndex` ixvec) vm)
             prevValueMap
       runFun io ex st
@@ -472,53 +473,53 @@ call io ex st f isTailCall args = do
                 f.fun_token_line
                 "Error in interpreter, should have found reference to 'this' to return in _.init() class method."
 
-executeBlock
-  :: (io :> es, ex :> es, st :> es, ret :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> State InterpreterState st
-  -> EarlyReturn Expr.LiteralValue ret
-  -> Vector Stmt.Stmt2
-  -> Environment
-  -> Environment
-  -> Eff es ()
+executeBlock ::
+  (io :> es, ex :> es, st :> es, ret :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  State InterpreterState st ->
+  EarlyReturn Expr.LiteralValue ret ->
+  Vector Stmt.Stmt2 ->
+  Environment ->
+  Environment ->
+  Eff es ()
 executeBlock io ex st ret statements =
   executeWithinEnvs ex st (\e -> executeStmts io e st ret statements >> pure ())
 
-executeWithinEnvs
-  :: (ex :> es, st :> es)
-  => Exception Error.RuntimeException ex
-  -> State InterpreterState st
-  -> (forall e. Exception Error.RuntimeException e -> Eff (e :& es) a)
-  -> Environment
-  -> Environment
-  -> Eff es a
+executeWithinEnvs ::
+  (ex :> es, st :> es) =>
+  Exception Error.RuntimeException ex ->
+  State InterpreterState st ->
+  (forall e. Exception Error.RuntimeException e -> Eff (e :& es) a) ->
+  Environment ->
+  Environment ->
+  Eff es a
 executeWithinEnvs ex st action prevEnv tempEnv = do
   State.modify st $ \s ->
     s {environment = tempEnv}
   finallyE ex action $ do
     State.modify st $ \s -> s {environment = prevEnv}
   where
-    finallyE
-      :: ex :> es
-      => Exception exn ex
-      -> (forall e. Exception exn e -> Eff (e :& es) a)
-      -> Eff es b
-      -> Eff es a
+    finallyE ::
+      (ex :> es) =>
+      Exception exn ex ->
+      (forall e. Exception exn e -> Eff (e :& es) a) ->
+      Eff es b ->
+      Eff es a
     finallyE e first closer = do
       r <- Exception.try first
       closer
       either (Exception.throw e) (pure) r
 
-interpret
-  :: io :> es => IOE io -> Vector Stmt.Stmt2 -> Eff es Error.ErrorPresent
+interpret ::
+  (io :> es) => IOE io -> Vector Stmt.Stmt2 -> Eff es Error.ErrorPresent
 interpret io statements = do
   initialInterpreterState <- effIO io $ do
     globalsRef <- newIORef globals
     pure $
       InterpreterState
-        { environment = GlobalEnvironment globalsRef
-        , globals = globalsRef
+        { environment = GlobalEnvironment globalsRef,
+          globals = globalsRef
         }
   value :: Either Error.RuntimeException Expr.LiteralValue <-
     State.evalState initialInterpreterState $ \st -> Exception.try $ \ex -> EarlyReturn.withEarlyReturn $ \ret -> executeStmts io ex st ret statements
@@ -530,35 +531,32 @@ interpret io statements = do
     globals =
       IM.fromList $
         (\(k, v) -> (Hashable.hash @ShortByteString k, v))
-          <$> [
-                ( "clock"
-                , Expr.LCallable $
-                    Expr.CNativeFunction $
-                      Expr.LNFunction
-                        { Expr.ln_fun_arity = 0
-                        , Expr.ln_fun_call = \io' _ex' _st' _args ->
-                            -- realToFrac & fromIntegral treat NominalDiffTime as seconds
-                            Expr.LNumber . realToFrac <$> effIO io' Time.getPOSIXTime
-                        }
-                )
-              ,
-                ( "read"
-                , Expr.LCallable $
-                    Expr.CNativeFunction $
-                      Expr.LNFunction
-                        { Expr.ln_fun_arity = 0
-                        , Expr.ln_fun_call = \io' _ex' _st' _args ->
-                            effIO io' $ readByte stdin
-                        }
-                )
-              ,
-                ( "utf"
-                , -- see https://docs.oracle.com/javase/specs/jls/se20/html/jls-5.html#jls-5.1.3 and original java loxlox
+          <$> [ ( "clock",
                   Expr.LCallable $
                     Expr.CNativeFunction $
                       Expr.LNFunction
-                        { Expr.ln_fun_arity = 4
-                        , Expr.ln_fun_call = \_io _ex _st _args -> do
+                        { Expr.ln_fun_arity = 0,
+                          Expr.ln_fun_call = \io' _ex' _st' _args ->
+                            -- realToFrac & fromIntegral treat NominalDiffTime as seconds
+                            Expr.LNumber . realToFrac <$> effIO io' Time.getPOSIXTime
+                        }
+                ),
+                ( "read",
+                  Expr.LCallable $
+                    Expr.CNativeFunction $
+                      Expr.LNFunction
+                        { Expr.ln_fun_arity = 0,
+                          Expr.ln_fun_call = \io' _ex' _st' _args ->
+                            effIO io' $ readByte stdin
+                        }
+                ),
+                ( "utf",
+                  -- see https://docs.oracle.com/javase/specs/jls/se20/html/jls-5.html#jls-5.1.3 and original java loxlox
+                  Expr.LCallable $
+                    Expr.CNativeFunction $
+                      Expr.LNFunction
+                        { Expr.ln_fun_arity = 4,
+                          Expr.ln_fun_call = \_io _ex _st _args -> do
                             let bytes =
                                   V.foldr'
                                     (\n acc -> case n of Expr.LNumber d -> round d : acc; _else -> acc)
@@ -566,27 +564,25 @@ interpret io statements = do
                                     _args
                             pure $ Expr.LString $ SBS.pack bytes
                         }
-                )
-              ,
-                ( "exit"
-                , Expr.LCallable $
+                ),
+                ( "exit",
+                  Expr.LCallable $
                     Expr.CNativeFunction $
                       Expr.LNFunction
-                        { Expr.ln_fun_arity = 1
-                        , Expr.ln_fun_call = \_io _ex _st _args ->
+                        { Expr.ln_fun_arity = 1,
+                          Expr.ln_fun_call = \_io _ex _st _args ->
                             let exitCode = case _args V.! 0 of
                                   Expr.LNumber n -> floor n
                                   _ -> 70
                              in effIO _io $ System.Exit.exitWith $ System.Exit.ExitFailure exitCode
                         }
-                )
-              ,
-                ( "printerr"
-                , Expr.LCallable $
+                ),
+                ( "printerr",
+                  Expr.LCallable $
                     Expr.CNativeFunction $
                       Expr.LNFunction
-                        { Expr.ln_fun_arity = 1
-                        , Expr.ln_fun_call = \io' _ex _st _args -> do
+                        { Expr.ln_fun_arity = 1,
+                          Expr.ln_fun_call = \io' _ex _st _args -> do
                             errstr <- stringify io' $ _args V.! 0
                             effIO io' $ BS.hPutStrLn stderr errstr
                             pure Expr.LNil
@@ -609,22 +605,22 @@ readByte handle = do
   free buffer
   pure res
 
-executeStmts
-  :: (io :> es, ex :> es, st :> es, ret :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> State InterpreterState st
-  -> EarlyReturn Expr.LiteralValue ret
-  -> Vector Stmt.Stmt2
-  -> Eff es Expr.LiteralValue
+executeStmts ::
+  (io :> es, ex :> es, st :> es, ret :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  State InterpreterState st ->
+  EarlyReturn Expr.LiteralValue ret ->
+  Vector Stmt.Stmt2 ->
+  Eff es Expr.LiteralValue
 executeStmts io ex st ret v = traverse_ (execute io ex st ret) v >> pure Expr.LNil
 
-recPrintEnvs
-  :: io :> es
-  => IOE io
-  -> Environment
-  -> Int
-  -> Eff es ()
+recPrintEnvs ::
+  (io :> es) =>
+  IOE io ->
+  Environment ->
+  Int ->
+  Eff es ()
 recPrintEnvs io env count = case env of
   GlobalEnvironment v -> printEnvRef v
   LocalEnvironment v enc -> printEnvRef v >> recPrintEnvs io enc (count + 1)
@@ -634,12 +630,12 @@ recPrintEnvs io env count = case env of
       stringMap <- traverse (stringify io) mapv
       effIO io . putStrLn $ show stringMap <> " " <> show count
 
-checkMethodChain
-  :: io :> es
-  => IOE io
-  -> ShortByteString
-  -> IORef Expr.LoxRuntimeClass
-  -> Eff es (Maybe Expr.LoxRuntimeFunction)
+checkMethodChain ::
+  (io :> es) =>
+  IOE io ->
+  ShortByteString ->
+  IORef Expr.LoxRuntimeClass ->
+  Eff es (Maybe Expr.LoxRuntimeFunction)
 checkMethodChain io fieldName = go
   where
     go ref = do

@@ -1,5 +1,5 @@
 [language-server.haskell-language-server.config.haskell]
-"formattingProvider" = "fourmolu"
+"formattingProvider" = "ormolu"
 
 [[language]]
 name = "haskell"

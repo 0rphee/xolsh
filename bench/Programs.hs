@@ -13,8 +13,8 @@ import Error qualified
 import Scanner qualified
 import TokenType qualified
 
-comptimeScanningAction
-  :: [(String, ByteString)] -> IO [(String, V.Vector TokenType.Token)]
+comptimeScanningAction ::
+  [(String, ByteString)] -> IO [(String, V.Vector TokenType.Token)]
 comptimeScanningAction list = traverse f list
   where
     f :: (String, ByteString) -> IO (String, V.Vector TokenType.Token)
@@ -25,12 +25,12 @@ comptimeScanningAction list = traverse f list
 
 lightTests :: [(String, ByteString)]
 lightTests =
-  [ t_concatAndMult
-  , t_inherited_method
-  , t_assign_to_closure
-  , t_recfib5
-  , t_nested_closure
-  , t_inheritance_lambdas
+  [ t_concatAndMult,
+    t_inherited_method,
+    t_assign_to_closure,
+    t_recfib5,
+    t_nested_closure,
+    t_inheritance_lambdas
   ]
 
 heavyTests :: [(String, ByteString)]

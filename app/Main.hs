@@ -1,6 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-
 module Main (main) where
 
 import Bluefin.Eff (runEff)

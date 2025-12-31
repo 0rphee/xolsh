@@ -21,13 +21,13 @@ import System.IO qualified
 
 data GlobalState
   = GlobalState
-  { hadError :: !Error.ErrorPresent
-  , hadRuntimeError :: !Error.ErrorPresent
+  { hadError :: !Error.ErrorPresent,
+    hadRuntimeError :: !Error.ErrorPresent
   }
 
-run
-  :: (io :> es, ge :> es)
-  => IOE io -> State GlobalState ge -> ByteString -> Eff es ()
+run ::
+  (io :> es, ge :> es) =>
+  IOE io -> State GlobalState ge -> ByteString -> Eff es ()
 run io ge sourceBS =
   ( runWriter $ \w -> do
       tokens <- scanTokens io w sourceBS
@@ -46,9 +46,9 @@ run io ge sourceBS =
             hadRuntimeError <- interpret io stmts2
             when (hadRuntimeError == Error.Error) $ State.modify ge $ \s -> s {hadRuntimeError = Error.Error}
 
-runFile
-  :: (io :> es, ge :> es)
-  => IOE io -> State GlobalState ge -> ByteString -> Eff es ()
+runFile ::
+  (io :> es, ge :> es) =>
+  IOE io -> State GlobalState ge -> ByteString -> Eff es ()
 runFile io ge path = do
   -- liftIO $ B.putStrLn ("Run file: " <> path)
   fileContents <- effIO io $ B.readFile (B.unpack path)
@@ -62,8 +62,8 @@ runFile io ge path = do
     GlobalState Error.NoError Error.NoError ->
       System.Exit.exitSuccess
 
-runPrompt
-  :: (io :> es, ge :> es) => IOE io -> State GlobalState ge -> Eff es ()
+runPrompt ::
+  (io :> es, ge :> es) => IOE io -> State GlobalState ge -> Eff es ()
 runPrompt io ge = forever $ do
   effIO io $ B.putStr "> " >> System.IO.hFlush System.IO.stdout
   line <- effIO io B.getLine

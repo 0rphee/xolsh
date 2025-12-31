@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module Environment
-  ( InterpreterState (..)
-  , ValueMap
-  , Environment (..)
-  , lookUpVariable
-  , assignAt
-  , assignFromMap
-  , define
+  ( InterpreterState (..),
+    ValueMap,
+    Environment (..),
+    lookUpVariable,
+    assignAt,
+    assignFromMap,
+    define,
   )
 where
 
@@ -29,26 +29,26 @@ import TokenType qualified
 type ValueMap = IntMap Expr.LiteralValue
 
 data InterpreterState = InterpreterState
-  { globals :: IORef ValueMap
-  , environment :: Environment
+  { globals :: IORef ValueMap,
+    environment :: Environment
   }
 
 data Environment
   = GlobalEnvironment {values :: IORef ValueMap}
   | LocalEnvironment
-      { values :: IORef ValueMap
-      , _enclosing :: Environment
+      { values :: IORef ValueMap,
+        _enclosing :: Environment
       }
   deriving (Eq)
 
-lookUpVariable
-  :: (ex :> es, st :> es, io :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> State InterpreterState st
-  -> TokenType.Token
-  -> Expr.AccessInfo
-  -> Eff es Expr.LiteralValue
+lookUpVariable ::
+  (ex :> es, st :> es, io :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  State InterpreterState st ->
+  TokenType.Token ->
+  Expr.AccessInfo ->
+  Eff es Expr.LiteralValue
 lookUpVariable io ex st name accessInfo =
   if accessInfo.distance == (-1)
     then State.get st >>= \v -> getFromMap io ex name accessInfo.index v.globals
@@ -74,24 +74,24 @@ lookUpVariable io ex st name accessInfo =
                   )
             LocalEnvironment _ enc -> getAt (dist - 1) enc
 
-assignAt
-  :: forall es io ex
-   . (io :> es, ex :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> Expr.AccessInfo
-  -> TokenType.Token
-  -> Expr.LiteralValue
-  -> Environment
-  -> Eff es ()
+assignAt ::
+  forall es io ex.
+  (io :> es, ex :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  Expr.AccessInfo ->
+  TokenType.Token ->
+  Expr.LiteralValue ->
+  Environment ->
+  Eff es ()
 assignAt io ex accessInfo name value environment = do
   mapRef <- getAncestor accessInfo.distance environment
   assignFromMap io ex name accessInfo value mapRef
   where
-    getAncestor
-      :: Int
-      -> Environment
-      -> Eff es (IORef ValueMap)
+    getAncestor ::
+      Int ->
+      Environment ->
+      Eff es (IORef ValueMap)
     getAncestor count currEnv =
       if count == 0
         then pure currEnv.values
@@ -103,15 +103,15 @@ assignAt io ex accessInfo name value environment = do
                 "Failure in resolver, bug in interpreter (assignAt)."
           LocalEnvironment _ enc -> getAncestor (count - 1) enc
 
-assignFromMap
-  :: (io :> es, ex :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> TokenType.Token
-  -> Expr.AccessInfo
-  -> Expr.LiteralValue
-  -> IORef ValueMap
-  -> Eff es ()
+assignFromMap ::
+  (io :> es, ex :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  TokenType.Token ->
+  Expr.AccessInfo ->
+  Expr.LiteralValue ->
+  IORef ValueMap ->
+  Eff es ()
 assignFromMap io ex name accessInfo value mapRef =
   effIO io (readIORef mapRef) >>= \vmap ->
     if M.member accessInfo.index vmap
@@ -122,14 +122,14 @@ assignFromMap io ex name accessInfo value mapRef =
             name.tline
             ("Undefined variable '" <> (SBS.fromShort name.lexeme) <> "'.")
 
-getFromMap
-  :: (io :> es, ex :> es)
-  => IOE io
-  -> Exception Error.RuntimeException ex
-  -> TokenType.Token
-  -> Int
-  -> IORef ValueMap
-  -> Eff es Expr.LiteralValue
+getFromMap ::
+  (io :> es, ex :> es) =>
+  IOE io ->
+  Exception Error.RuntimeException ex ->
+  TokenType.Token ->
+  Int ->
+  IORef ValueMap ->
+  Eff es Expr.LiteralValue
 getFromMap io ex name accessInfoIndex ref =
   effIO io (readIORef ref) >>= \m -> do
     case m M.!? accessInfoIndex of
@@ -141,9 +141,9 @@ getFromMap io ex name accessInfoIndex ref =
             ("Undefined variable '" <> (SBS.fromShort name.lexeme) <> "'.")
 
 {-# INLINEABLE define #-}
-define
-  :: io :> es
-  => IOE io -> Int -> Expr.LiteralValue -> Environment -> Eff es ()
+define ::
+  (io :> es) =>
+  IOE io -> Int -> Expr.LiteralValue -> Environment -> Eff es ()
 define io accessIndex value environment = do
   effIO io $ modifyIORef' environment.values $ \valueMap -> M.insert accessIndex value valueMap
 

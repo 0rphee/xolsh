@@ -3,15 +3,15 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Expr
-  ( IPhase (..)
-  , LiteralValue
-  , Expr
-  , XEnvDistance
-  , Callable
-  , AccessInfo (..)
-  , XAccessInfo
-  , literalValueType
-  , XToken
+  ( IPhase (..),
+    LiteralValue,
+    Expr,
+    XEnvDistance,
+    Callable,
+    AccessInfo (..),
+    XAccessInfo,
+    literalValueType,
+    XToken,
   )
 where
 

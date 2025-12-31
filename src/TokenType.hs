@@ -3,8 +3,8 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module TokenType
-  ( TokenType (..)
-  , Token (..)
+  ( TokenType (..),
+    Token (..),
   )
 where
 
@@ -59,8 +59,8 @@ data TokenType
   deriving (Eq, Show, Lift)
 
 data Token = Token
-  { ttype :: !TokenType
-  , lexeme :: !ShortByteString
-  , tline :: !Int
+  { ttype :: !TokenType,
+    lexeme :: !ShortByteString,
+    tline :: !Int
   }
   deriving (Show, Lift)

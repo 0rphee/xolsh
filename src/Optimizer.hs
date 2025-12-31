@@ -12,8 +12,8 @@ import Stmt (Stmt (..))
 import Stmt qualified
 import TokenType (Token (..))
 
-runOptimizer
-  :: Vector Stmt.Stmt2 -> (Vector Stmt.Stmt2)
+runOptimizer ::
+  Vector Stmt.Stmt2 -> (Vector Stmt.Stmt2)
 runOptimizer s = Vector.mapMaybe optimizeStatement s
   where
     optimizeStatement :: Stmt.Stmt2 -> Maybe Stmt.Stmt2
@@ -75,9 +75,9 @@ computeConstantExpressions e = case e of
   where
     handleBin :: Expr.Expr2 -> Token -> Expr.Expr2 -> Expr.Expr2
     handleBin l t r =
-      case ( computeConstantExpressions l
-           , computeConstantExpressions r
-           , Expr.isNumericalOperator t.ttype
+      case ( computeConstantExpressions l,
+             computeConstantExpressions r,
+             Expr.isNumericalOperator t.ttype
            ) of
         (ELiteral (LNumber x), ELiteral (LNumber y), (Just op)) ->
           ELiteral $ x `op` y

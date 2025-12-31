@@ -26,13 +26,13 @@ import System.IO.Silently qualified as Silently
 import System.Process qualified as P
 import Test.Tasty (localOption)
 import Test.Tasty.Bench
-  ( Benchmark
-  , TimeMode (WallTime)
-  , bench
-  , bgroup
-  , defaultMain
-  , nfAppIO
-  , whnfIO
+  ( Benchmark,
+    TimeMode (WallTime),
+    bench,
+    bgroup,
+    defaultMain,
+    nfAppIO,
+    whnfIO,
   )
 import TokenType qualified
 
@@ -52,30 +52,30 @@ main = do
           , -}
           bgroup
             "heavyTests"
-            (benchPrograms Programs.heavyTests)
-        , bgroup
+            (benchPrograms Programs.heavyTests),
+          bgroup
             "loxLoxTests"
             (benchLoxLoxPrograms xolshexe Programs.loxLoxTests)
-        ]
-    , bgroup
+        ],
+      bgroup
         "scanning"
-        [ bgroup "lightTests" $ benchScanning $(TH.lift Programs.lightTests)
-        , bgroup "heavyTests" $ benchScanning $(TH.lift Programs.heavyTests)
-        , bgroup "loxlox" []
-        ]
-    , bgroup
+        [ bgroup "lightTests" $ benchScanning $(TH.lift Programs.lightTests),
+          bgroup "heavyTests" $ benchScanning $(TH.lift Programs.heavyTests),
+          bgroup "loxlox" []
+        ],
+      bgroup
         "parsing"
         [ bgroup "lightTests" $
             benchParsing
               $( (TH.runIO $ Programs.comptimeScanningAction Programs.lightTests)
-                  >>= TH.lift
-               )
-        , bgroup "heavyTests" $
+                   >>= TH.lift
+               ),
+          bgroup "heavyTests" $
             benchParsing
               $( (TH.runIO $ Programs.comptimeScanningAction Programs.heavyTests)
-                  >>= TH.lift
-               )
-        , bgroup "loxlox" []
+                   >>= TH.lift
+               ),
+          bgroup "loxlox" []
         ]
     ]
   where
@@ -89,8 +89,8 @@ main = do
     benchPrograms :: [(String, ByteString)] -> [Benchmark]
     benchPrograms proglist =
       [ bench (name) $ whnfIO $ interpretStr bs
-      | ((strname, bs)) <- proglist
-      , let name = if B.length bs > 20 then strname else B.unpack bs
+      | ((strname, bs)) <- proglist,
+        let name = if B.length bs > 20 then strname else B.unpack bs
       ]
     benchLoxLoxPrograms :: FilePath -> [FilePath] -> [Benchmark]
     benchLoxLoxPrograms xolshexe proglist =
@@ -122,8 +122,8 @@ benchParsing proglist =
   | (name, bs) <- proglist
   ]
 
-runParsingIO
-  :: V.Vector TokenType.Token -> IO (V.Vector Stmt.Stmt1, Error.ErrorPresent)
+runParsingIO ::
+  V.Vector TokenType.Token -> IO (V.Vector Stmt.Stmt1, Error.ErrorPresent)
 runParsingIO tokens = runEff $ \io -> runWriter $ \w -> Parser.runParse io w tokens
 
 interpretStr :: ByteString -> IO ()
@@ -137,8 +137,7 @@ interpretStr sourceBS =
             (runWriter $ \w -> (Resolver.runResolver io w stmts)) >>= \case
               (_, Error.Error) -> Exception.throw ex "Error in resolver."
               (stmts', Error.NoError) -> do
-                ( effIO io $ Silently.silence $ runEff $ \io' -> Interpreter.interpret io' (Optimizer.runOptimizer stmts')
-                  )
+                (effIO io $ Silently.silence $ runEff $ \io' -> Interpreter.interpret io' (Optimizer.runOptimizer stmts'))
                   >>= \case
                     Error.Error -> Exception.throw ex "Error while interpreting."
                     Error.NoError -> pure ()

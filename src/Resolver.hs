@@ -40,38 +40,38 @@ data Scope
 
 data NameInfo
   = MkNameInfo
-  { isDefined :: !Bool
-  -- ^ does the name have a definition, or has only been declared?
-  , index :: !Int
-  -- ^ index of the name (hash)
+  { -- | does the name have a definition, or has only been declared?
+    isDefined :: !Bool,
+    -- | index of the name (hash)
+    index :: !Int
   }
   deriving (Show)
 
 data ResolverState = ResolverState
-  { scopes :: ![Scope]
-  , currentFunction :: !FunctionType
-  , currentClass :: !ClassType
+  { scopes :: ![Scope],
+    currentFunction :: !FunctionType,
+    currentClass :: !ClassType
   }
 
-runResolver
-  :: (io :> es, w :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Vector Stmt.Stmt1
-  -> Eff es (Vector Stmt.Stmt2)
+runResolver ::
+  (io :> es, w :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Vector Stmt.Stmt1 ->
+  Eff es (Vector Stmt.Stmt2)
 runResolver io w stmts =
   evalState initialResolverState $ \st -> resolveStmts st stmts
   where
     initialResolverState = ResolverState {scopes = [], currentFunction = FTNone, currentClass = CTNone}
     resolveStmts st = traverse (resolveStmt io w st)
 
-resolveStmt
-  :: (io :> es, w :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> State ResolverState st
-  -> Stmt.Stmt1
-  -> Eff es Stmt.Stmt2
+resolveStmt ::
+  (io :> es, w :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  State ResolverState st ->
+  Stmt.Stmt1 ->
+  Eff es Stmt.Stmt2
 resolveStmt io w st = \case
   Stmt.SBlock stmts -> do
     beginScope st
@@ -145,8 +145,8 @@ resolveStmt io w st = \case
               Error.resolverError io w t "Can't return a value from an initializer."
             resolveExpr io w st e <&> \case
               Expr.ECall var@(Expr.EVariable funToken _) paren args _isTailCall
-                | (FTFunction lexeme) <- curF
-                , lexeme == funToken.lexeme ->
+                | (FTFunction lexeme) <- curF,
+                  lexeme == funToken.lexeme ->
                     Expr.ECall var paren args True
               e' -> e'
         )
@@ -156,15 +156,15 @@ resolveStmt io w st = \case
     nBody <- resolveStmt io w st body
     pure $ Stmt.SWhile nCond nBody
 
-resolveFunction
-  :: (io :> es, w :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> State ResolverState st
-  -> Vector TokenType.Token
-  -> Vector Stmt.Stmt1
-  -> FunctionType
-  -> Eff es (Vector Stmt.Stmt2, Vector Expr.AccessInfo)
+resolveFunction ::
+  (io :> es, w :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  State ResolverState st ->
+  Vector TokenType.Token ->
+  Vector Stmt.Stmt1 ->
+  FunctionType ->
+  Eff es (Vector Stmt.Stmt2, Vector Expr.AccessInfo)
 resolveFunction io w st params body funType = do
   enclosing <- State.get st <&> (.currentFunction)
   State.modify st $ \s -> s {currentFunction = funType}
@@ -176,13 +176,13 @@ resolveFunction io w st params body funType = do
   endScope st
   pure (nBody, resolvedParams)
 
-resolveVariableName
-  :: (io :> es, w :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> State ResolverState st
-  -> TokenType.Token
-  -> Eff es Expr.AccessInfo
+resolveVariableName ::
+  (io :> es, w :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  State ResolverState st ->
+  TokenType.Token ->
+  Eff es Expr.AccessInfo
 resolveVariableName io w st name = do
   State.get st <&> (.scopes) >>= \case
     [] -> pure ()
@@ -197,13 +197,13 @@ resolveVariableName io w st name = do
         _ -> pure ()
   resolveLocal st name.lexeme
 
-resolveExpr
-  :: (io :> es, w :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> State ResolverState st
-  -> Expr.Expr1
-  -> Eff es Expr.Expr2
+resolveExpr ::
+  (io :> es, w :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  State ResolverState st ->
+  Expr.Expr1 ->
+  Eff es Expr.Expr2
 resolveExpr io w st = \case
   Expr.EVariable name _ -> do
     distance <- resolveVariableName io w st name
@@ -257,26 +257,26 @@ resolveExpr io w st = \case
     pure $ Expr.EThis keyword distance
   Expr.EUnary t expr -> Expr.EUnary t <$> resolveExpr io w st expr
 
-beginScope
-  :: st :> es
-  => State ResolverState st
-  -> Eff es ()
+beginScope ::
+  (st :> es) =>
+  State ResolverState st ->
+  Eff es ()
 beginScope st = State.modify st $ \s -> s {scopes = MkScope M.empty : s.scopes}
 
-endScope :: st :> es => State ResolverState st -> Eff es ()
+endScope :: (st :> es) => State ResolverState st -> Eff es ()
 endScope st = State.modify st $ \s ->
   let ns = case s.scopes of
         [] -> []
         (_ : xs) -> xs
    in s {scopes = ns}
 
-declare
-  :: (io :> es, w :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> State ResolverState st
-  -> TokenType.Token
-  -> Eff es ()
+declare ::
+  (io :> es, w :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  State ResolverState st ->
+  TokenType.Token ->
+  Eff es ()
 declare io w st name =
   State.get st >>= \s ->
     case s.scopes of
@@ -293,18 +293,18 @@ declare io w st name =
             State.put st $
               s {scopes = oldSc {env = (newM)} : xs}
 
-define
-  :: st :> es
-  => State ResolverState st
-  -> TokenType.Token
-  -> Eff es Expr.AccessInfo
+define ::
+  (st :> es) =>
+  State ResolverState st ->
+  TokenType.Token ->
+  Eff es Expr.AccessInfo
 define st name = do
   s <- State.get st
   let (newScopes, accessInfo) =
         case s.scopes of
           [] ->
-            ( []
-            , Expr.MkAccessInfo {Expr.index = Hashable.hash name.lexeme, Expr.distance = -1}
+            ( [],
+              Expr.MkAccessInfo {Expr.index = Hashable.hash name.lexeme, Expr.distance = -1}
             )
           (oldSc : xs) ->
             let hashed = Hashable.hash name.lexeme
@@ -315,20 +315,20 @@ define st name = do
                   oldSc.env of
                   (Just _old, newM) ->
                     -- Just: se encontró name.lexeme, solo se añade que esté definida
-                    ( oldSc {env = newM} : xs
-                    , Expr.MkAccessInfo {Expr.index = _old.index, Expr.distance = 0}
+                    ( oldSc {env = newM} : xs,
+                      Expr.MkAccessInfo {Expr.index = _old.index, Expr.distance = 0}
                     )
                   (Nothing, newM) ->
                     -- Nothing: no se encontró name.lexeme, se inserta completamente de cero
                     ( oldSc {env = newM}
-                        : xs
-                    , Expr.MkAccessInfo {Expr.index = hashed, Expr.distance = 0}
+                        : xs,
+                      Expr.MkAccessInfo {Expr.index = hashed, Expr.distance = 0}
                     )
   State.put st $ s {scopes = newScopes}
   pure $ (accessInfo)
 
-resolveLocal
-  :: st :> es => State ResolverState st -> ShortByteString -> Eff es Expr.AccessInfo
+resolveLocal ::
+  (st :> es) => State ResolverState st -> ShortByteString -> Eff es Expr.AccessInfo
 resolveLocal st name = do
   scopes <- State.get st <&> (.scopes)
   go 0 scopes

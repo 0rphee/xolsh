@@ -11,19 +11,18 @@ on:
       - "src/**"
       - "test/**"
 jobs:
-  fourmolu:
+  formatting:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
 
-    - uses: haskell-actions/run-fourmolu@v11
+    - uses: haskell-actions/run-ormolu@v17
       with:
-        version: "0.16.2.0"
         pattern: |
-          src
-          app
+          src/**/**.hs
+          app/**/**.hs
           test/**/**.hs
-          bench
+          bench/**/**.hs
 
   hlint:
     runs-on: ubuntu-latest

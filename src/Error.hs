@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module Error
-  ( scanError
-  , parseError
-  , reportRuntimeError
-  , ErrorPresent (..)
-  , RuntimeException (..)
-  , resolverError
+  ( scanError,
+    parseError,
+    reportRuntimeError,
+    ErrorPresent (..),
+    RuntimeException (..),
+    resolverError,
   )
 where
 
@@ -32,55 +32,55 @@ instance Semigroup ErrorPresent where
 instance Monoid ErrorPresent where
   mempty = NoError
 
-scanError
-  :: (io :> es, writer :> es)
-  => IOE io
-  -> Writer ErrorPresent writer
-  -> Int
-  -> ByteString
-  -> Eff es ()
+scanError ::
+  (io :> es, writer :> es) =>
+  IOE io ->
+  Writer ErrorPresent writer ->
+  Int ->
+  ByteString ->
+  Eff es ()
 scanError io w line = report io w line ""
 
-parseError
-  :: (io :> es, writer :> es)
-  => IOE io
-  -> Writer ErrorPresent writer
-  -> Token
-  -> ByteString
-  -> Eff es ()
+parseError ::
+  (io :> es, writer :> es) =>
+  IOE io ->
+  Writer ErrorPresent writer ->
+  Token ->
+  ByteString ->
+  Eff es ()
 parseError io w token message =
   if token.ttype == EOF
     then report io w token.tline " at end" message
     else
       report io w token.tline (" at '" <> SBS.fromShort token.lexeme <> "'") message
 
-resolverError
-  :: (io :> es, writer :> es)
-  => IOE io
-  -> Writer ErrorPresent writer
-  -> Token
-  -> ByteString
-  -> Eff es ()
+resolverError ::
+  (io :> es, writer :> es) =>
+  IOE io ->
+  Writer ErrorPresent writer ->
+  Token ->
+  ByteString ->
+  Eff es ()
 resolverError = parseError
 
 data RuntimeException
   = RuntimeError {line :: !Int, message :: !ByteString}
 
-reportRuntimeError
-  :: io :> es => IOE io -> RuntimeException -> Eff es ()
+reportRuntimeError ::
+  (io :> es) => IOE io -> RuntimeException -> Eff es ()
 reportRuntimeError io rerror =
   effIO io $
     putStrLnStderr $
       rerror.message <> "\n[line " <> BS.pack (show rerror.line) <> "]"
 
-report
-  :: (io :> es, writer :> es)
-  => IOE io
-  -> Writer ErrorPresent writer
-  -> Int
-  -> ByteString
-  -> ByteString
-  -> Eff es ()
+report ::
+  (io :> es, writer :> es) =>
+  IOE io ->
+  Writer ErrorPresent writer ->
+  Int ->
+  ByteString ->
+  ByteString ->
+  Eff es ()
 report io w line whereLocation message = do
   let er =
         mconcat

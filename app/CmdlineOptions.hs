@@ -1,7 +1,7 @@
 module CmdlineOptions
-  ( options
-  , Options (..)
-  , execParser
+  ( options,
+    Options (..),
+    execParser,
   )
 where
 

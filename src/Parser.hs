@@ -28,29 +28,29 @@ import VectorBuilder.Builder qualified as VB
 import VectorBuilder.Vector qualified as VB
 
 data Parser = Parser
-  { current :: !Int
-  , tokens :: !(Vector TokenType.Token)
+  { current :: !Int,
+    tokens :: !(Vector TokenType.Token)
   }
   deriving (Show)
 
 data ParseException = ParseException
 
-runParse
-  :: (io :> es, w :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Vector TokenType.Token
-  -> Eff es (Vector Stmt.Stmt1)
+runParse ::
+  (io :> es, w :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Vector TokenType.Token ->
+  Eff es (Vector Stmt.Stmt1)
 runParse io w tokens = State.evalState initialParserState $ parse io w
   where
     initialParserState = Parser {current = 0, tokens = tokens}
 
-parse
-  :: (io :> es, w :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> State Parser st
-  -> Eff es (Vector Stmt.Stmt1)
+parse ::
+  (io :> es, w :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  State Parser st ->
+  Eff es (Vector Stmt.Stmt1)
 parse io w st = go VB.empty
   where
     go accum = do
@@ -63,13 +63,13 @@ parse io w st = go VB.empty
             Nothing -> go accum
         else pure $ VB.build accum
 
-varDeclaration
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+varDeclaration ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 varDeclaration io w ex st = do
   name <- consume io w ex st TokenType.IDENTIFIER "Expect variable name."
   m <- match st [TokenType.EQUAL]
@@ -78,12 +78,12 @@ varDeclaration io w ex st = do
   pure $ Stmt.SVar name initializer
 
 {-# INLINE declaration #-}
-declaration
-  :: (io :> es, w :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> State Parser st
-  -> Eff es (Maybe Stmt.Stmt1)
+declaration ::
+  (io :> es, w :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  State Parser st ->
+  Eff es (Maybe Stmt.Stmt1)
 declaration io w st = do
   e <- Exception.try $ \ex -> do
     safePeek st >>= \case
@@ -96,14 +96,14 @@ declaration io w st = do
     Right v -> pure $ Just v
 
 {-# INLINE classDeclaration #-}
-classDeclaration
-  :: forall es io w ex st
-   . (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+classDeclaration ::
+  forall es io w ex st.
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 classDeclaration io w ex st = do
   name <- consume io w ex st TokenType.IDENTIFIER "Expect class name."
   superclass <-
@@ -118,9 +118,9 @@ classDeclaration io w ex st = do
   consume io w ex st TokenType.RIGHT_BRACE "Expect '}' after class body."
   pure $ Stmt.SClass name () superclass methods
   where
-    getMethods
-      :: VB.Builder Stmt.FunctionH1
-      -> Eff es (Vector Stmt.FunctionH1)
+    getMethods ::
+      VB.Builder Stmt.FunctionH1 ->
+      Eff es (Vector Stmt.FunctionH1)
     getMethods accum = do
       not <$> check st TokenType.RIGHT_BRACE >>= \case
         -- if we havent found RIGHT_BRACE, we try parsing class methods
@@ -130,25 +130,25 @@ classDeclaration io w ex st = do
         False -> pure $ VB.build accum
 
 {-# INLINE functionDeclaration #-}
-functionDeclaration
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+functionDeclaration ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 functionDeclaration io w ex st = Stmt.SFunction () <$> function io w ex st "function"
 
 {-# INLINEABLE function #-}
-function
-  :: forall es io w ex st
-   . (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> ByteString
-  -> Eff es Stmt.FunctionH1
+function ::
+  forall es io w ex st.
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  ByteString ->
+  Eff es Stmt.FunctionH1
 function io w ex st kind = do
   name <- consume io w ex st TokenType.IDENTIFIER $ "Expect " <> kind <> " name."
   consume io w ex st TokenType.LEFT_PAREN $
@@ -164,9 +164,9 @@ function io w ex st kind = do
     "Expect '{' before " <> kind <> " body."
   Stmt.FFunctionH name parameters <$> block io w ex st
   where
-    getParams
-      :: VB.Builder TokenType.Token
-      -> Eff es (Vector TokenType.Token)
+    getParams ::
+      VB.Builder TokenType.Token ->
+      Eff es (Vector TokenType.Token)
     getParams accum = do
       when (VB.size accum >= 255) $ do
         peek st >>= \tok ->
@@ -177,13 +177,13 @@ function io w ex st kind = do
         True -> getParams (accum <> VB.singleton nextParamName)
         False -> pure $ VB.build (accum <> VB.singleton nextParamName)
 
-statement
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+statement ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 statement io w ex st =
   safePeek st >>= \case
     Just (TokenType.Token TokenType.FOR _ _) -> advance st >> forStatement io w ex st
@@ -194,13 +194,13 @@ statement io w ex st =
     Just (TokenType.Token TokenType.LEFT_BRACE _ _) -> advance st >> (Stmt.SBlock <$> block io w ex st)
     _ -> expressionStatement io w ex st
 
-returnStatement
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+returnStatement ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 returnStatement io w ex st = do
   keyword <- previous st
   value <-
@@ -211,13 +211,13 @@ returnStatement io w ex st = do
   consume io w ex st TokenType.SEMICOLON "Expect ';' after return value."
   pure $ Stmt.SReturn keyword value
 
-forStatement
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+forStatement ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 forStatement io w ex st = do
   consume io w ex st TokenType.LEFT_PAREN "Expect '(' after 'for'."
   initializer <-
@@ -250,26 +250,26 @@ forStatement io w ex st = do
         Nothing -> whileStmt
   pure finishedForStmt
 
-whileStatement
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+whileStatement ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 whileStatement io w ex st = do
   consume io w ex st TokenType.LEFT_PAREN "Expect '(' after 'while'."
   condition <- expression io w ex st
   consume io w ex st TokenType.RIGHT_PAREN "Expect ')' after condition."
   Stmt.SWhile condition <$> statement io w ex st
 
-ifStatement
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+ifStatement ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 ifStatement io w ex st = do
   consume io w ex st TokenType.LEFT_PAREN "Expect '(' after 'if'."
   condition <- expression io w ex st
@@ -281,13 +281,13 @@ ifStatement io w ex st = do
       False -> pure Nothing
   pure $ Stmt.SIf condition thenBranch elseBranch
 
-block
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es (Vector Stmt.Stmt1)
+block ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es (Vector Stmt.Stmt1)
 block io w ex st =
   go VB.empty
     <* consume io w ex st TokenType.RIGHT_BRACE "Expect '}' after block."
@@ -303,46 +303,46 @@ block io w ex st =
             Nothing -> go accum
         else pure (VB.build accum)
 
-printStatement
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+printStatement ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 printStatement io w ex st = do
   value <- expression io w ex st
   consume io w ex st TokenType.SEMICOLON "Expect ';' after value."
   pure $ Stmt.SPrint value
 
-expressionStatement
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Stmt.Stmt1
+expressionStatement ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Stmt.Stmt1
 expressionStatement io w ex st = do
   expr <- expression io w ex st
   consume io w ex st TokenType.SEMICOLON "Expect ';' after expression."
   pure $ Stmt.SExpression expr
 
-expression
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+expression ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 expression = assignment
 
-assignment
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+assignment ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 assignment io w ex st = do
   expr <- orP io w ex st
   m <- match st [TokenType.EQUAL]
@@ -359,33 +359,33 @@ assignment io w ex st = do
           pure expr
     else pure expr
 
-orP
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+orP ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 orP io w ex st = andP io w ex st >>= whileParseELogical st (andP io w ex st) [TokenType.OR]
 
-andP
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+andP ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 andP io w ex st =
   equality io w ex st
     >>= whileParseELogical st (equality io w ex st) [TokenType.AND]
 
-equality
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+equality ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 equality io w ex st =
   comparison io w ex st
     >>= whileParseEBinary
@@ -393,31 +393,31 @@ equality io w ex st =
       (comparison io w ex st)
       [TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL]
 
-comparison
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+comparison ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 comparison io w ex st =
   term io w ex st
     >>= whileParseEBinary
       st
       (term io w ex st)
-      [ TokenType.GREATER
-      , TokenType.GREATER_EQUAL
-      , TokenType.LESS
-      , TokenType.LESS_EQUAL
+      [ TokenType.GREATER,
+        TokenType.GREATER_EQUAL,
+        TokenType.LESS,
+        TokenType.LESS_EQUAL
       ]
 
-term
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+term ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 term io w ex st =
   factor io w ex st
     >>= whileParseEBinary
@@ -425,24 +425,24 @@ term io w ex st =
       (factor io w ex st)
       [TokenType.MINUS, TokenType.PLUS]
 
-factor
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+factor ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 factor io w ex st =
   unary io w ex st
     >>= whileParseEBinary st (unary io w ex st) [TokenType.SLASH, TokenType.STAR]
 
-unary
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+unary ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 unary io w ex st = do
   match st [TokenType.BANG, TokenType.MINUS] >>= \m ->
     if m
@@ -450,21 +450,21 @@ unary io w ex st = do
       else
         call io w ex st
 
-call
-  :: forall es io w ex st
-   . (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+call ::
+  forall es io w ex st.
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 call io w ex st = do
   expr <- primary io w ex st
   whileTrue expr
   where
-    whileTrue
-      :: Expr1
-      -> Eff es Expr1
+    whileTrue ::
+      Expr1 ->
+      Eff es Expr1
     whileTrue prev = do
       safePeek st >>= \case
         -- if we find a LEFT_PAREN after a primary expr, this is a function call
@@ -477,9 +477,9 @@ call io w ex st = do
           whileTrue $ EGet prev name
         _ ->
           pure prev
-    finishCall
-      :: Expr1
-      -> Eff es Expr1
+    finishCall ::
+      Expr1 ->
+      Eff es Expr1
     finishCall callee = do
       arguments <-
         not <$> check st TokenType.RIGHT_PAREN >>= \case
@@ -490,10 +490,10 @@ call io w ex st = do
       paren <- consume io w ex st TokenType.RIGHT_PAREN "Expect ')' after arguments."
       pure $ ECall callee paren arguments ()
       where
-        getArgs
-          :: Int
-          -> VB.Builder Expr1
-          -> Eff es (Vector Expr1)
+        getArgs ::
+          Int ->
+          VB.Builder Expr1 ->
+          Eff es (Vector Expr1)
         getArgs argCount accum = do
           when (argCount >= 255) $ do
             peek st >>= \tok ->
@@ -503,13 +503,13 @@ call io w ex st = do
             True -> getArgs (argCount + 1) (accum <> VB.singleton nextArg)
             False -> pure $ VB.build (accum <> VB.singleton nextArg)
 
-primary
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> Eff es Expr1
+primary ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  Eff es Expr1
 primary io w ex st = do
   t <- safePeek st
   case t of
@@ -534,23 +534,23 @@ primary io w ex st = do
       p <- peek st
       getAndReportParserError io w p "Expect expression." >>= Exception.throw ex
 
-safePeek
-  :: st :> es
-  => State Parser st
-  -> Eff es (Maybe TokenType.Token)
+safePeek ::
+  (st :> es) =>
+  State Parser st ->
+  Eff es (Maybe TokenType.Token)
 safePeek st = do
   c <- not <$> isAtEnd st
   if c then Just <$> peek st else pure Nothing
 
 {-# INLINE whileParse #-}
-whileParse
-  :: st :> es
-  => State Parser st
-  -> (Expr1 -> TokenType.Token -> Expr1 -> Expr1)
-  -> Eff es Expr1
-  -> [TokenType.TokenType]
-  -> Expr1
-  -> Eff es Expr1
+whileParse ::
+  (st :> es) =>
+  State Parser st ->
+  (Expr1 -> TokenType.Token -> Expr1 -> Expr1) ->
+  Eff es Expr1 ->
+  [TokenType.TokenType] ->
+  Expr1 ->
+  Eff es Expr1
 whileParse st constr = go
   where
     go inner matchlist eAccum = do
@@ -563,29 +563,29 @@ whileParse st constr = go
         else
           pure eAccum
 
-whileParseEBinary
-  :: st :> es
-  => State Parser st
-  -> Eff es Expr1
-  -> [TokenType.TokenType]
-  -> Expr1
-  -> Eff es Expr1
+whileParseEBinary ::
+  (st :> es) =>
+  State Parser st ->
+  Eff es Expr1 ->
+  [TokenType.TokenType] ->
+  Expr1 ->
+  Eff es Expr1
 whileParseEBinary st = whileParse st EBinary
 
-whileParseELogical
-  :: st :> es
-  => State Parser st
-  -> Eff es Expr1
-  -> [TokenType.TokenType]
-  -> Expr1
-  -> Eff es Expr1
+whileParseELogical ::
+  (st :> es) =>
+  State Parser st ->
+  Eff es Expr1 ->
+  [TokenType.TokenType] ->
+  Expr1 ->
+  Eff es Expr1
 whileParseELogical st = whileParse st ELogical
 
-synchronize
-  :: forall es st
-   . st :> es
-  => State Parser st
-  -> Eff es ()
+synchronize ::
+  forall es st.
+  (st :> es) =>
+  State Parser st ->
+  Eff es ()
 synchronize st = advance st >> go
   where
     go :: Eff es ()
@@ -610,15 +610,15 @@ synchronize st = advance st >> go
         else do
           pure ()
 
-consume
-  :: (io :> es, w :> es, ex :> es, st :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> Exception ParseException ex
-  -> State Parser st
-  -> TokenType.TokenType
-  -> ByteString
-  -> Eff es TokenType.Token
+consume ::
+  (io :> es, w :> es, ex :> es, st :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  Exception ParseException ex ->
+  State Parser st ->
+  TokenType.TokenType ->
+  ByteString ->
+  Eff es TokenType.Token
 consume io w ex st ttype message =
   check st ttype >>= \c ->
     if c
@@ -628,22 +628,22 @@ consume io w ex st ttype message =
           >>= (\t -> getAndReportParserError io w t message)
           >>= Exception.throw ex
 
-getAndReportParserError
-  :: (io :> es, w :> es)
-  => IOE io
-  -> Writer Error.ErrorPresent w
-  -> TokenType.Token
-  -> ByteString
-  -> Eff es ParseException
+getAndReportParserError ::
+  (io :> es, w :> es) =>
+  IOE io ->
+  Writer Error.ErrorPresent w ->
+  TokenType.Token ->
+  ByteString ->
+  Eff es ParseException
 getAndReportParserError io w token message = do
   Error.parseError io w token message
   pure ParseException
 
-match
-  :: st :> es
-  => State Parser st
-  -> [TokenType.TokenType]
-  -> Eff es Bool
+match ::
+  (st :> es) =>
+  State Parser st ->
+  [TokenType.TokenType] ->
+  Eff es Bool
 match st = \case
   [] -> pure False
   (ttype : ttypes) ->
@@ -652,11 +652,11 @@ match st = \case
         then advance st >> pure True
         else match st ttypes
 
-check
-  :: st :> es
-  => State Parser st
-  -> TokenType.TokenType
-  -> Eff es Bool
+check ::
+  (st :> es) =>
+  State Parser st ->
+  TokenType.TokenType ->
+  Eff es Bool
 check st ttype =
   isAtEnd st >>= \c ->
     if c
@@ -665,30 +665,30 @@ check st ttype =
         p <- peek st
         pure (p.ttype == ttype)
 
-advance
-  :: st :> es
-  => State Parser st
-  -> Eff es TokenType.Token
+advance ::
+  (st :> es) =>
+  State Parser st ->
+  Eff es TokenType.Token
 advance st = do
   c <- not <$> isAtEnd st
   when c $ State.modify st $ \pr -> pr {current = pr.current + 1}
   previous st
 
-isAtEnd
-  :: st :> es
-  => State Parser st
-  -> Eff es Bool
+isAtEnd ::
+  (st :> es) =>
+  State Parser st ->
+  Eff es Bool
 isAtEnd st = (\t -> t.ttype == TokenType.EOF) <$> peek st
 
 -- TODO: unsafeIndex ?
-peek
-  :: st :> es
-  => State Parser st
-  -> Eff es TokenType.Token
+peek ::
+  (st :> es) =>
+  State Parser st ->
+  Eff es TokenType.Token
 peek st = State.get st <&> \pr -> pr.tokens V.! pr.current
 
-previous
-  :: st :> es
-  => State Parser st
-  -> Eff es TokenType.Token
+previous ::
+  (st :> es) =>
+  State Parser st ->
+  Eff es TokenType.Token
 previous st = State.get st <&> \pr -> pr.tokens V.! (pr.current - 1)
