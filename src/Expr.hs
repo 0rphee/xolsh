@@ -24,6 +24,7 @@ module Expr
   )
 where
 
+import Bluefin.EarlyReturn (EarlyReturn)
 import Bluefin.Eff
 import Bluefin.Exception (Exception)
 import Bluefin.IO (IOE)
@@ -172,11 +173,12 @@ data LoxRuntimeClass = LRClass
     class_methods :: !(IORef (Map ShortByteString LoxRuntimeFunction)),
     class_superclass :: !(Maybe (IORef LoxRuntimeClass)),
     class_call ::
-      forall es io ex st.
-      (io :> es, ex :> es, st :> es) =>
+      forall es io ex st ret.
+      (io :> es, ex :> es, st :> es, ret :> es) =>
       IOE io ->
       Exception Error.RuntimeException ex ->
       State InterpreterState st ->
+      EarlyReturn LiteralValue ret ->
       IORef LoxRuntimeClass -> -- reference to itself
       Vector LiteralValue -> -- arguments
       Eff es LiteralValue
