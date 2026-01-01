@@ -1,6 +1,6 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE TypeData #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Expr
@@ -39,7 +39,7 @@ import Error qualified
 import Stmt qualified
 import TokenType (Token (..), TokenType (..))
 
-data IPhase = PH1 | PH2
+type data IPhase = PH1 | PH2
 
 type Expr1 = Expr PH1
 

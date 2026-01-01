@@ -1,5 +1,5 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RoleAnnotations #-}
+{-# LANGUAGE TypeData #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Expr
@@ -19,7 +19,7 @@ import TokenType qualified
 
 data LiteralValue
 
-data IPhase = PH1 | PH2
+type data IPhase = PH1 | PH2
 
 type role Expr nominal
 
