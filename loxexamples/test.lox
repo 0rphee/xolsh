@@ -1,2 +1,31 @@
-() / {} name while for true false identifier 123.01 123. tree 123
-%%
+var max = 1000000;
+
+var loopStart = clock();
+
+fun rec(sum, counter, max) {
+  if (counter >= max) return sum;
+  return rec(sum+sum, counter+1, max);
+}
+
+print rec(2, 0, max);
+
+
+var loopTime = clock() - loopStart;
+var start = clock();
+
+
+var counter = 0;
+var sum = 2;
+//while (counter < max) {
+//  counter = counter + 1;
+//  sum = sum + sum;
+//}
+//print sum;
+
+var elapsed = clock() - start;
+print "loop";
+print loopTime;
+print "elapsed";
+print elapsed;
+print "equals";
+print elapsed - loopTime;
