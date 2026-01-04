@@ -137,9 +137,9 @@ evaluate io ex st = \case
         TokenType.SLASH -> Expr.LNumber <$> commonIfNumber (/)
         TokenType.STAR -> Expr.LNumber <$> commonIfNumber (*)
         _ -> pure Expr.LNil -- marked as unreachable (section 7.2.5)
-  Expr.ECall callee parenLine argumentsExprs isTailCall -> do
+  Expr.ECall callee parenLine argumentsExprs _isTailCall -> do
     calleeVal <- evaluate io ex st callee
-    argVals <- traverse (evaluate io ex st) argumentsExprs
+    argVals <- evalECallArguments io ex st argumentsExprs
     case calleeVal of
       Expr.LCallable c -> do
         (callable_arity, callable_call) <- case c of
@@ -147,7 +147,7 @@ evaluate io ex st = \case
             effIO io (readIORef ref)
               <&> (\cv -> (cv.class_arity, Expr.class_call cv io ex st ref argVals))
           Expr.CNativeFunction f -> pure $ (f.ln_fun_arity, Expr.ln_fun_call f io ex st argVals)
-          Expr.CFunction f -> pure (V.length f.fun_params, call io ex st f isTailCall argVals)
+          Expr.CFunction f -> pure (V.length f.fun_params, call io ex st f argVals)
         if (callable_arity /= V.length argumentsExprs)
           then
             Exception.throw ex $
@@ -180,6 +180,9 @@ evaluate io ex st = \case
   where
     -- See note for Double comparison in Lox in Expr.hs
     isEqual = (==)
+
+evalECallArguments :: (io :> es, ex :> es, st :> es) => IOE io -> Exception Error.RuntimeException ex -> State InterpreterState st -> Vector Expr.Expr2 -> Eff es (Vector Expr.LiteralValue)
+evalECallArguments io ex st argumentsExprs = traverse (evaluate io ex st) argumentsExprs
 
 getInstanceFieldOrMethod ::
   (io :> es, ex :> es) =>
@@ -263,7 +266,10 @@ stringify io = \case
     cname <- effIO io (readIORef cref) <&> (.class_name) <&> SBS.fromShort
     pure $ cname <> " instance"
 
-data Return = NoReturn | ReturnWith Expr.LiteralValue
+data Return
+  = NoReturn
+  | ReturnWith !Expr.LiteralValue -- return value
+  | TailCall !(Vector Expr.LiteralValue) -- arguments
 
 while :: Eff es Bool -> Eff es Return -> Eff es Return
 while cond act = do
@@ -289,6 +295,8 @@ execute io ex st = \case
   Stmt.SPrint expression -> do
     evaluate io ex st expression >>= stringify io >>= effIO io . BS.putStrLn
     pure NoReturn
+  Stmt.SReturn _ (Just (Expr.ECall _ _ argumentsExprs _isTailCall@True)) ->
+    TailCall <$> evalECallArguments io ex st argumentsExprs
   Stmt.SReturn _ valueExpr -> do
     value <- maybe (pure Expr.LNil) (evaluate io ex st) valueExpr
     pure $ ReturnWith value
@@ -370,7 +378,7 @@ execute io ex st = \case
                   let initM io' ex' st' fieldMapRef thisClassRef args = do
                         (initFunc, classInstance) <-
                           bind io' fieldMapRef thisClassRef originalInitMthd
-                        _ <- call io' ex' st' initFunc False args
+                        _ <- call io' ex' st' initFunc args
                         pure classInstance
                    in (V.length originalInitMthd.fun_params, initM)
                 Nothing ->
@@ -429,32 +437,35 @@ call ::
   Exception Error.RuntimeException ex ->
   State InterpreterState st ->
   Expr.LoxRuntimeFunction ->
-  Bool ->
   Vector Expr.LiteralValue ->
   Eff es Expr.LiteralValue
-call io ex st f isTailCall args = do
+call io ex st f callArgs = do
+  -- TODO: move len args == len params check to `call` due to tailcalls
   -- environment of the function before being called
   prevEnv <- State.get st <&> (.environment)
-  if isTailCall
-    then do
-      effIO io $ modifyIORef' prevEnv.values $ \prevValueMap ->
-        f.fun_params
-          & V.ifoldl'
-            -- unsafe index is safe, since `call` is not ran if the fun_arity does not match with the arguments
-            (\vm ixvec ix -> IM.insert ix.index (args `V.unsafeIndex` ixvec) vm)
-            prevValueMap
-      runFun io ex st
-    else do
-      let newValueMap =
-            V.zipWith (\accessInfo -> (accessInfo.index,)) f.fun_params args
-              & V.toList
-              & IM.fromList
-      funcEnvironment <-
-        effIO io $ newIORef newValueMap <&> (`LocalEnvironment` f.fun_closure)
-      executeWithinEnvs ex st (\e -> within io e st) prevEnv funcEnvironment
+  let newValueMap =
+        V.zipWith (\accessInfo -> (accessInfo.index,)) f.fun_params callArgs
+          & V.toList
+          & IM.fromList
+  funcEnvironment <-
+    effIO io $ newIORef newValueMap <&> (`LocalEnvironment` f.fun_closure)
+  executeWithinEnvs ex st (\e -> within io e st) prevEnv funcEnvironment
   where
+    setArgumentsInEnv newArguments valueRef = effIO io $ modifyIORef' valueRef $ \prevValueMap ->
+      f.fun_params
+        & V.ifoldl'
+          -- unsafe index is safe, since `call` is not ran if the fun_arity does not match with the arguments
+          (\vm ixvec ix -> IM.insert ix.index (newArguments `V.unsafeIndex` ixvec) vm)
+          prevValueMap
+
     -- if the function does not return via a return stmt, it will default to nil
-    runFun io' ex' st' = executeStmts io' ex' st' f.fun_body >>= \case NoReturn -> pure Expr.LNil; ReturnWith v -> pure v
+    runFun io' ex' st' =
+      executeStmts io' ex' st' f.fun_body >>= \case
+        NoReturn -> pure Expr.LNil
+        ReturnWith v -> pure v
+        TailCall tailCallArgs -> do
+          State.get st >>= \e -> setArgumentsInEnv tailCallArgs e.environment.values
+          runFun io' ex' st'
     within io' ex' st' = do
       v <- runFun io' ex' st'
       if f.fun_isInitializer
