@@ -2,7 +2,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
-module Scanner (scanTokens, whileM) where
+module Scanner (scanTokens) where
 
 import Bluefin.Eff
 import Bluefin.IO (IOE)
