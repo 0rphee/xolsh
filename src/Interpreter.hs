@@ -279,11 +279,11 @@ data Return
   | ReturnWith !Expr.LiteralValue -- return value
   | TailCall !(Vector Expr.LiteralValue) -- arguments
 
-while :: Eff es Bool -> Eff es Return -> Eff es Return
-while cond act = do
+runWhile :: Eff es Bool -> Eff es Return -> Eff es Return
+runWhile cond act = do
   r <- cond
   if r
-    then act >>= \case NoReturn -> while cond act; v -> pure v
+    then act >>= \case NoReturn -> runWhile cond act; v -> pure v
     else pure NoReturn
 
 execute ::
@@ -314,7 +314,7 @@ execute io ex st = \case
       Just v -> evaluate io ex st v
     State.get st >>= \v -> define io accessInfo.index value v.environment >> pure NoReturn
   Stmt.SWhile condition body -> do
-    while
+    runWhile
       (isTruthy <$> evaluate io ex st condition)
       (execute io ex st body)
   Stmt.SBlock statements -> do
@@ -459,7 +459,7 @@ call io ex st parenLine f callArgs = do
           & IM.fromList
   funcEnvironment <-
     effIO io $ newIORef newValueMap <&> (`LocalEnvironment` f.fun_closure)
-  executeWithinEnvs ex st (\e -> within io e st) prevEnv funcEnvironment
+  executeWithinEnvs st (within io ex st) prevEnv funcEnvironment
   where
     setArgumentsInEnv newArguments valueRef = effIO io $ modifyIORef' valueRef $ \prevValueMap ->
       f.fun_params
@@ -503,33 +503,20 @@ executeBlock ::
   Environment ->
   Environment ->
   Eff es Return
-executeBlock io ex st statements =
-  executeWithinEnvs ex st (\e -> executeStmts io e st statements)
+executeBlock io ex st statements = executeWithinEnvs st (executeStmts io ex st statements)
 
 executeWithinEnvs ::
-  (ex :> es, st :> es) =>
-  Exception Error.RuntimeException ex ->
+  (st :> es) =>
   State InterpreterState st ->
-  (forall e. Exception Error.RuntimeException e -> Eff (e :& es) a) ->
+  (Eff (es) a) ->
   Environment ->
   Environment ->
   Eff es a
-executeWithinEnvs ex st action prevEnv tempEnv = do
-  State.modify st $ \s ->
-    s {environment = tempEnv}
-  finallyE ex action $ do
-    State.modify st $ \s -> s {environment = prevEnv}
-  where
-    finallyE ::
-      (ex :> es) =>
-      Exception exn ex ->
-      (forall e. Exception exn e -> Eff (e :& es) a) ->
-      Eff es b ->
-      Eff es a
-    finallyE e first closer = do
-      r <- Exception.try first
-      closer
-      either (Exception.throw e) (pure) r
+executeWithinEnvs st action prevEnv tempEnv = do
+  State.modify st $ \s -> s {environment = tempEnv}
+  a <- action
+  State.modify st $ \s -> s {environment = prevEnv}
+  pure a
 
 interpret ::
   (io :> es) => IOE io -> Vector Stmt.Stmt2 -> Eff es Error.ErrorPresent
