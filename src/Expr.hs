@@ -177,6 +177,7 @@ data LoxRuntimeClass = LRClass
       IOE io ->
       Exception Error.RuntimeException ex ->
       State InterpreterState st ->
+      Int -> -- call paren line, for 'call' errors
       IORef LoxRuntimeClass -> -- reference to itself
       Vector LiteralValue -> -- arguments
       Eff es LiteralValue

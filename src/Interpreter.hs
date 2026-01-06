@@ -141,25 +141,18 @@ evaluate io ex st = \case
     calleeVal <- evaluate io ex st callee
     argVals <- evalECallArguments io ex st argumentsExprs
     case calleeVal of
-      Expr.LCallable c -> do
-        (callable_arity, callable_call) <- case c of
-          Expr.CClass ref ->
-            effIO io (readIORef ref)
-              <&> (\cv -> (cv.class_arity, Expr.class_call cv io ex st ref argVals))
-          Expr.CNativeFunction f -> pure $ (f.ln_fun_arity, Expr.ln_fun_call f io ex st argVals)
-          Expr.CFunction f -> pure (V.length f.fun_params, call io ex st f argVals)
-        if (callable_arity /= V.length argumentsExprs)
-          then
-            Exception.throw ex $
-              Error.RuntimeError
-                parenLine
-                ( "Expected "
-                    <> BS.pack (show callable_arity)
-                    <> " arguments but got "
-                    <> BS.pack (show $ V.length argumentsExprs)
-                    <> "."
-                )
-          else callable_call
+      Expr.LCallable c ->
+        case c of
+          Expr.CClass ref -> do
+            classValue <- effIO io (readIORef ref)
+            checkArgumentLength ex parenLine classValue.class_arity (V.length argVals)
+            Expr.class_call classValue io ex st parenLine ref argVals
+          Expr.CNativeFunction f -> do
+            checkArgumentLength ex parenLine f.ln_fun_arity (V.length argVals)
+            Expr.ln_fun_call f io ex st argVals
+          Expr.CFunction f -> do
+            checkArgumentLength ex parenLine (V.length f.fun_params) (V.length argVals)
+            call io ex st parenLine f argVals
       _ ->
         Exception.throw ex $
           Error.RuntimeError parenLine "Can only call functions and classes."
@@ -183,6 +176,21 @@ evaluate io ex st = \case
 
 evalECallArguments :: (io :> es, ex :> es, st :> es) => IOE io -> Exception Error.RuntimeException ex -> State InterpreterState st -> Vector Expr.Expr2 -> Eff es (Vector Expr.LiteralValue)
 evalECallArguments io ex st argumentsExprs = traverse (evaluate io ex st) argumentsExprs
+
+checkArgumentLength :: (e :> es) => Exception Error.RuntimeException e -> Int -> Int -> Int -> Eff es ()
+checkArgumentLength ex callParenLine arity argLen =
+  if (arity /= argLen)
+    then
+      Exception.throw ex $
+        Error.RuntimeError
+          callParenLine
+          ( "Expected "
+              <> BS.pack (show arity)
+              <> " arguments but got "
+              <> BS.pack (show $ argLen)
+              <> "."
+          )
+    else pure ()
 
 getInstanceFieldOrMethod ::
   (io :> es, ex :> es) =>
@@ -340,9 +348,9 @@ execute io ex st = \case
                 Error.RuntimeError superclassTok.tline "Superclass must be a class."
     (mayInitMethdThisClass, thisClassMethods) <-
       V.foldM
-        ( \(prevMayInit, acc) next@(Stmt.FFunctionH fname _ _) -> do
+        ( \(prevMayInit, acc) nextFunDecl@(Stmt.FFunctionH fname _ _) -> do
             let isInit = fname.lexeme == "init"
-            fun <- newFun st next isInit
+            fun <- newFun st nextFunDecl isInit
             let mayInit = if isInit then Just fun else prevMayInit
             pure (mayInit, M.insert fname.lexeme fun acc)
         )
@@ -368,6 +376,7 @@ execute io ex st = \case
                   IOE ioo ->
                   Exception Error.RuntimeException exx ->
                   State InterpreterState stt ->
+                  Int ->
                   IORef (Map ShortByteString Expr.LiteralValue) ->
                   IORef Expr.LoxRuntimeClass ->
                   Vector Expr.LiteralValue ->
@@ -375,14 +384,14 @@ execute io ex st = \case
                 )
               helper = case mayInitWSuper of
                 Just originalInitMthd ->
-                  let initM io' ex' st' fieldMapRef thisClassRef args = do
+                  let initM io' ex' st' callParenLine fieldMapRef thisClassRef args = do
                         (initFunc, classInstance) <-
                           bind io' fieldMapRef thisClassRef originalInitMthd
-                        _ <- call io' ex' st' initFunc args
+                        _ <- call io' ex' st' callParenLine initFunc args
                         pure classInstance
                    in (V.length originalInitMthd.fun_params, initM)
                 Nothing ->
-                  let initM _io _ex _st fieldMapRef thisClassRef _args =
+                  let initM _io _ex _st _callParenLine fieldMapRef thisClassRef _args =
                         pure $ Expr.LInstance fieldMapRef thisClassRef
                    in (0, initM)
            in helper
@@ -393,9 +402,9 @@ execute io ex st = \case
                   Expr.LRClass
                     { Expr.class_name = klassName.lexeme,
                       Expr.class_arity = classArity,
-                      Expr.class_call = \io' ex' st' thisClassRef args -> do
+                      Expr.class_call = \io' ex' st' callParenLine thisClassRef args -> do
                         fieldMapRef <- effIO io' $ newIORef M.empty
-                        initMaker io' ex' st' fieldMapRef thisClassRef args,
+                        initMaker io' ex' st' callParenLine fieldMapRef thisClassRef args,
                       Expr.class_methods = thisClassMethods,
                       Expr.class_superclass = maySuperClass
                     }
@@ -436,10 +445,11 @@ call ::
   IOE io ->
   Exception Error.RuntimeException ex ->
   State InterpreterState st ->
+  Int ->
   Expr.LoxRuntimeFunction ->
   Vector Expr.LiteralValue ->
   Eff es Expr.LiteralValue
-call io ex st f callArgs = do
+call io ex st parenLine f callArgs = do
   -- TODO: move len args == len params check to `call` due to tailcalls
   -- environment of the function before being called
   prevEnv <- State.get st <&> (.environment)
@@ -464,8 +474,10 @@ call io ex st f callArgs = do
         NoReturn -> pure Expr.LNil
         ReturnWith v -> pure v
         TailCall tailCallArgs -> do
-          State.get st >>= \e -> setArgumentsInEnv tailCallArgs e.environment.values
-          runFun io' ex' st'
+          State.get st >>= \e -> do
+            checkArgumentLength ex' parenLine (V.length f.fun_params) (V.length tailCallArgs)
+            setArgumentsInEnv tailCallArgs e.environment.values
+            runFun io' ex' st'
     within io' ex' st' = do
       v <- runFun io' ex' st'
       if f.fun_isInitializer
