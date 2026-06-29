@@ -35,7 +35,7 @@ jobs:
       - uses: nixbuild/nix-quick-install-action@v35
       - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: wasm-cabal-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
             key: wasm-cabal-cache-${{ hashFiles('dist-newstyle/cache/plan.json')}}
             restore-keys: wasm-cabal-cache-
